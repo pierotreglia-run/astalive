@@ -9,8 +9,6 @@
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<!-- Se dopo qualche secondo #root e' ancora vuoto, e' una libreria non caricata (rete/CDN):
-     questo messaggio sostituisce la pagina bianca silenziosa con un errore leggibile. -->
 <script>
   window.addEventListener("load", function () {
     setTimeout(function () {
@@ -23,9 +21,8 @@
         root.innerHTML =
           '<div style="color:#F2F0EA;background:#10151A;min-height:100vh;padding:24px;font-family:sans-serif;">' +
           '<h2 style="color:#DC5050;">Impossibile caricare l\'app</h2>' +
-          '<p>Libreria non caricata: <b>' + (mancanti.join(", ") || "sconosciuta") + '</b></p>' +
-          '<p style="color:#8B96A0;font-size:13px;">Prova a ricaricare la pagina. Se persiste, la rete sta bloccando cdn.jsdelivr.net: ' +
-          'prova un altro Wi-Fi/dati mobili, o apri la Console del browser per il dettaglio.</p></div>';
+          '<p>Libreria non caricata: <b>' + (mancanti.join(", ") || "errore interno, controlla la Console") + '</b></p>' +
+          '<p style="color:#8B96A0;font-size:13px;">Se il messaggio dice \'errore interno\', apri la Console del browser (Safari: Impostazioni > Avanzate > JavaScript Web Inspector, poi collega a un Mac) e mandami lo screenshot dell\'errore rosso.</p></div>';
       }
     }, 5000);
   });
@@ -38,8 +35,53 @@
 <body>
 <div id="root"></div>
 
-<!-- Icone: sostituto minimale di lucide-react via SVG inline, nessuna dipendenza esterna necessaria -->
 <script>
+const {
+  useState,
+  useEffect,
+  useMemo
+} = React;
+function makeIcon(paths) {
+  return function Icon({
+    size = 16,
+    color = "currentColor",
+    fill = "none",
+    ...rest
+  }) {
+    return React.createElement("svg", {
+      width: size,
+      height: size,
+      viewBox: "0 0 24 24",
+      fill,
+      stroke: color,
+      strokeWidth: 2,
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      ...rest
+    }, paths.map((d, i) => React.createElement("path", {
+      key: i,
+      d
+    })));
+  };
+}
+const ChevronRight = makeIcon(["M9 18l6-6-6-6"]);
+const ChevronDown = makeIcon(["M6 9l6 6 6-6"]);
+const SkipForward = makeIcon(["M5 4l10 8-10 8V4z", "M19 5v14"]);
+const Trophy = makeIcon(["M8 21h8", "M12 17v4", "M7 4h10v5a5 5 0 01-10 0V4z", "M17 4h3a3 3 0 01-3 5", "M7 4H4a3 3 0 003 5"]);
+const AlertTriangle = makeIcon(["M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z", "M12 9v4", "M12 17h.01"]);
+const Wallet = makeIcon(["M21 12V7H5a2 2 0 010-4h14v4", "M3 5v14a2 2 0 002 2h16v-5", "M18 12a2 2 0 000 4h4v-4h-4z"]);
+const Search = makeIcon(["M11 19a8 8 0 100-16 8 8 0 000 16z", "M21 21l-4.35-4.35"]);
+const RotateCcw = makeIcon(["M1 4v6h6", "M3.51 15a9 9 0 102.13-9.36L1 10"]);
+const Check = makeIcon(["M20 6L9 17l-5-5"]);
+const X = makeIcon(["M18 6L6 18", "M6 6l12 12"]);
+const TrendingUp = makeIcon(["M23 6l-9.5 9.5-5-5L1 18", "M17 6h6v6"]);
+const Shield = makeIcon(["M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"]);
+const Star = makeIcon(["M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"]);
+const ArrowLeft = makeIcon(["M19 12H5", "M12 19l-7-7 7-7"]);
+const SlidersHorizontal = makeIcon(["M21 4H14", "M10 4H3", "M21 12h-9", "M8 12H3", "M21 20h-5", "M12 20H3", "M14 2v4", "M8 10v4", "M16 18v4"]);
+const Download = makeIcon(["M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4", "M7 10l5 5 5-5", "M12 15V3"]);
+const RefreshCw = makeIcon(["M23 4v6h-6", "M1 20v-6h6", "M3.51 9a9 9 0 0114.85-3.36L23 10", "M1 14l4.64 4.36A9 9 0 0020.49 15"]);
+
 // Formato compatto per ridurre il peso del file (mobile-friendly):
 // [ruolo, nome, squadra, prezzoMercato500, fairValue800, targetPrice800, tier, titolarita, rigorista,
 //  sorpresa, rischio, decisione, nota, fonteReale, posizioneTattica, osservazioneLega,
@@ -2986,6 +3028,7 @@ function Toast({
     }
   }, toast.msg);
 }
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(AstaLive));
 </script>
 </body>
 </html>
