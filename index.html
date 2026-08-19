@@ -1,0 +1,1659 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#10151A" />
+<title>AstaLive — Assistente Asta Fantacalcio 2026/27</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.25.6/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<!-- Se dopo qualche secondo #root e' ancora vuoto, e' una libreria non caricata (rete/CDN):
+     questo messaggio sostituisce la pagina bianca silenziosa con un errore leggibile. -->
+<script>
+  window.addEventListener("load", function () {
+    setTimeout(function () {
+      var root = document.getElementById("root");
+      if (root && root.children.length === 0) {
+        var mancanti = [];
+        if (typeof React === "undefined") mancanti.push("React");
+        if (typeof ReactDOM === "undefined") mancanti.push("ReactDOM");
+        if (typeof Babel === "undefined") mancanti.push("Babel");
+        if (typeof XLSX === "undefined") mancanti.push("XLSX");
+        root.innerHTML =
+          '<div style="color:#F2F0EA;background:#10151A;min-height:100vh;padding:24px;font-family:sans-serif;">' +
+          '<h2 style="color:#DC5050;">Impossibile caricare l\'app</h2>' +
+          '<p>Libreria non caricata: <b>' + (mancanti.join(", ") || "sconosciuta") + '</b></p>' +
+          '<p style="color:#8B96A0;font-size:13px;">Controlla la connessione internet e ricarica la pagina. ' +
+          'Se il problema persiste, apri la Console del browser per il dettaglio tecnico.</p></div>';
+      }
+    }, 4000);
+  });
+</script>
+<style>
+  html, body, #root { height: 100%; background: #10151A; margin: 0; }
+  body { -webkit-font-smoothing: antialiased; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- Icone: sostituto minimale di lucide-react via SVG inline, nessuna dipendenza esterna necessaria -->
+<script type="text/babel" data-presets="react">
+// Formato compatto per ridurre il peso del file (mobile-friendly):
+// [ruolo, nome, squadra, prezzoMercato500, fairValue800, targetPrice800, tier, titolarita, rigorista,
+//  sorpresa, rischio, decisione, nota, fonteReale, posizioneTattica, osservazioneLega,
+//  prezzoMedioAltreAste800, nOsservazioniAltreAste]
+// NOTA METODOLOGICA: fairValue e' il prezzo ancorato al mercato (nessun moltiplicatore "hype" nascosto).
+// targetPrice e' il margine di trattativa realistico. prezzoMedioAltreAste e' un dato OSSERVATIVO
+// separato (media di prezzi reali pagati in altre aste raccolte): non alimenta fairValue/target,
+// serve a segnalare quando il mercato reale sembra valutare un giocatore diversamente dal modello.
+const PLAYERS_RAW = [["P","Carnesecchi","Atalanta",22.02,25,48,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",49.5,13,41],["D","Zappacosta","Atalanta",19.06,21,17,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Ballott...",1,"Terzino destro in difesa a 4 (nuovo sistema Sarri, non piu' wing-back): spinta offensiva confermata anche nel nuovo modulo","",10.3,14,14],["D","Scalvini","Atalanta",19.37,22,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare centrale, sistema a 4 nuovo",1,"","",11.6,15,15],["D","Kristensen T.","Atalanta",15.5,17,12,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolar...",0,"","",6.4,13,10],["D","Bellanova","Atalanta",14.7,17,11,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 55% (probabile formazione G1, 16/08) | Ballott...",0,"Terzino destro alternativo in difesa a 4 (nuovo sistema Sarri): spinta offensiva confermata","",5.6,12,10],["C","Samardzic","Atalanta",24.56,28,29,"Ottimo","Alta","3° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Ballott...",1,"","",22.8,14,25],["C","Ederson D.S.","Atalanta",22.18,25,28,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Rimasto...",1,"Mezzala dinamica box-to-box, inserimenti frequenti","",23.9,14,24],["C","Gaetano","Atalanta",18.6,21,14,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Nuovo a...",0,"Regista davanti alla difesa, meno propenso al bonus offensivo","",6.9,9,12],["A","De Ketelaere","Atalanta",44.44,50,52,"Ottimo","Alta","2° rig.",0,"Medio","RILANCIA CON CAUTELA (rischio)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Salta solo la 1a giornata ...",1,"","",42.9,11,45],["A","Scamacca","Atalanta",35.69,40,69,"Top","Media-Alta","1° rig.",0,"Basso","RILANCIA","Ballottaggio centravanti con Krstovic, primo rigorista",1,"","",70.0,12,60],["A","Raspadori","Atalanta",44.73,50,48,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Provato...",1,"","",35.5,10,41],["A","Krstovic","Atalanta",39.75,45,59,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Ballott...",1,"","",56.3,10,52],["P","Skorupski","Bologna",14.1,16,19,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",17.0,14,17],["D","Vitik","Bologna",13.8,16,18,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolar...",0,"","",0,0,16],["D","Heggem","Bologna",14.7,17,13,"Buono","Alta","",0,"Basso","RILANCIA","Titolare centrale",0,"","",1.0,4,12],["D","Miranda J.","Bologna",17.5,20,16,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare",1,"Terzino sinistro, buon assistman","",11.5,15,14],["D","Zortea","Bologna",14.7,17,10,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Ballott...",0,"Terzino destro, spinta offensiva","",4.5,10,9],["C","Ferguson","Bologna",18.6,21,17,"Buono","Alta","",0,"Basso","RILANCIA","Titolare",0,"Mezzala di lotta e inserimento","",1.9,4,15],["C","Pobega","Bologna",17.1,19,20,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Ballott...",0,"","",0.9,1,17],["C","Bernardeschi","Bologna",21.6,24,18,"Buono","Media-Alta","3° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Ballott...",0,"","",9.8,14,15],["C","Orsolini","Bologna",56.72,64,87,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare, primo rigorista confermato",1,"Esterno offensivo destro, principale rifinitore/rigorista","",82.8,15,76],["A","Dovbyk","Bologna",22.26,25,55,"Ottimo","Alta","2° rig.",0,"Basso","RILANCIA","Titolare se sta bene, 2o rigorista (27/32 in carriera, insidia Orsolini)",1,"","",59.6,12,47],["C","Rowe","Bologna",23.2,26,31,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"Esterno offensivo sinistro titolare","",28.3,15,27],["P","Caprile","Cagliari",13.68,15,16,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",12.4,14,13],["D","Mina","Cagliari",15.04,17,11,"Buono","Media-Alta","2° rig.",0,"Basso","RILANCIA","Titolare centrale, 2o rigorista",1,"","",6.2,13,10],["D","Obert","Cagliari",15.5,17,15,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",1.5,3,13],["D","Rodriguez Ju.","Cagliari",3.6,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",2.8,3,4],["C","Fazzini","Cagliari",18.6,21,11,"Buono","Alta","1° rig.",1,"Basso","RILANCIA","Nuovo arrivo, grande spazio, primo rigorista designato in ritiro - SORPRESA",0,"","",4.4,10,10],["C","Adopo","Cagliari",17.1,19,16,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Titolar...",0,"","",3.7,4,14],["A","Maldini","Cagliari",4.0,4,11,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Candida...",0,"","",19.8,4,9],["A","Kevin Carlos","Cagliari",29.3,33,32,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolare centravanti, alternative Borrelli/Mendy",0,"","",14.9,3,28],["P","Butez","Como",19.73,22,45,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",47.2,14,38],["D","Chalobah T.","Como",17.2,19,20,"Top","Media-Alta","",0,"Basso","RILANCIA","Nuovo arrivo, candidato titolare centrale",0,"","",16.3,15,17],["D","Couto","Como",16.4,18,21,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 50% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",17.4,15,18],["C","Da Cunha","Como",23.48,26,46,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare, ORA primo rigorista (ha scavalcato Nico Paz)",1,"Mezzala offensiva Como","",48.1,15,40],["C","Perrone","Como",23.1,26,20,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Favorit...",0,"","",11.7,15,17],["C","Paz N.","Como",52.87,59,113,"Top","Alta","2° rig.",0,"Basso","RILANCIA","Intoccabile sulla trequarti, ora 2o rigorista",1,"","",119.2,15,98],["C","Baturina","Como",29.63,33,61,"Top","Media-Alta","",0,"Basso","RILANCIA","In pole sulle fasce",1,"Trequartista Como, alternativa offensiva","",64.4,15,53],["A","Diao","Como",23.2,26,31,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | In pole...",0,"","",28.2,7,27],["A","Douvikas","Como",23.1,26,90,"Top","Alta","3° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolar...",1,"","",118.5,13,78],["P","De Gea","Fiorentina",22.99,26,31,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",28.0,13,27],["D","Dragusin","Fiorentina",16.4,18,19,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",14.6,14,16],["D","Jimenez A.","Fiorentina",16.4,18,22,"Top","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Ballott...",0,"","",19.3,15,19],["D","Viery","Fiorentina",14.7,17,11,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Ballott...",0,"Centrale difensivo puro, poco propenso al bonus","",4.0,6,10],["C","Atta","Fiorentina",16.94,19,45,"Top","Alta","",1,"Basso","RILANCIA","Titolare fisso, grande spolvero precampionato - SORPRESA",1,"","",50.2,15,39],["C","Oulai","Fiorentina",17.1,19,10,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",1.6,7,9],["C","Fagioli","Fiorentina",20.1,23,12,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Ballott...",0,"","",5.0,9,11],["C","Mastantuono","Fiorentina",26.2,29,52,"Top","Media-Alta","",1,"Basso","RILANCIA","Nuovo arrivo dal Real Madrid, candida titolare trequarti - SORPRESA",0,"","",52.1,14,44],["A","Kean","Fiorentina",103.94,117,141,"Top","Alta","3° rig.",0,"Basso","RILANCIA","Verso permanenza, titolare confermato, 3o rigorista",1,"","",124.3,12,122],["C","Gudmundsson A.","Fiorentina",40.4,45,38,"Top","Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Deve co...",1,"Trequartista offensivo","",26.8,15,33],["C","Mandragora","Fiorentina",21.6,24,16,"Buono","Media-Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 55% (probabile formazione G1, 16/08) | NON tit...",0,"Regista/mezzala, in ballottaggio per la regia con Fagioli","",8.4,11,14],["P","Palmisani","Frosinone",3.1,3,4,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Leggerm...",0,"","",0.9,2,3],["D","Akpoguma","Frosinone",3.6,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 40% (probabile formazione G1, 16/08) | Arrivat...",0,"","",0,0,4],["D","Terzic","Frosinone",7.6,9,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolar...",0,"","",1.8,1,8],["C","Grillitsch","Frosinone",15.6,18,17,"Buono","Media-Alta","",0,"Basso","RILANCIA","Candidato deciso a titolare davanti alla difesa",0,"","",0.9,2,15],["C","Calò","Frosinone",18.6,21,22,"Ottimo","Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Alterna...",0,"","",17.3,13,19],["C","Schmid","Frosinone",11.7,13,13,"Buono","Alta","",1,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Acquist...",0,"","",4.6,3,11],["A","Raimondo","Frosinone",8.5,10,11,"Titolare","Alta","2° rig.",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Riferim...",0,"","",9.9,5,10],["C","Zerbin","Frosinone",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 55% (probabile formazione G1, 16/08) | Ballott...",0,"","",4.4,2,4],["P","Bijlow","Genoa",16.1,18,12,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato",0,"","",5.4,13,10],["D","Marcandalli","Genoa",14.7,17,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolare centrale",0,"","",3.7,8,8],["D","Ostigard","Genoa",21.74,24,27,"Top","Alta","",0,"Basso","RILANCIA","Titolare centrale",1,"","",22.4,15,23],["D","Vasquez","Genoa",17.64,20,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare centrale",1,"","",12.7,13,15],["D","Norton-Cuffy","Genoa",16.4,18,16,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato esterno destro",0,"","",12.4,15,14],["C","Frendrup","Genoa",18.6,21,14,"Buono","Alta","",0,"Basso","RILANCIA","Titolare, punto fermo",0,"","",2.6,6,12],["C","Sow","Genoa",18.6,21,22,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Nuovo arrivo, destinato a punto fermo",0,"","",0.9,1,19],["A","Colombo","Genoa",23.2,26,44,"Ottimo","Alta","1° rig.",0,"Basso","RILANCIA","Titolare centravanti, PRIMO rigorista dopo partenza Malinovskyi",0,"","",44.2,8,38],["A","Vitinha O.","Genoa",11.7,13,15,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 75% (probabile formazione G1, 16/08) | Avanti ...",0,"","",15.5,1,13],["C","Baldanzi","Genoa",23.2,26,17,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Ballott...",0,"Trequartista Genoa, ruolo avanzato","",8.8,12,15],["C","Messias","Genoa",1.6,2,2,"Titolare","Media-Alta","2° rig.",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 55% (probabile formazione G1, 16/08) | NON tit...",0,"","",0,0,2],["P","Martinez Jo.","Inter",25.4,29,46,"Top","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Favorit...",0,"","",46.2,14,40],["D","Akanji","Inter",18.71,21,32,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"","",31.3,15,28],["D","Bastoni","Inter",24.89,28,35,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"Centrale in costruzione, buona propensione al gol su palla inattiva","",33.3,14,31],["D","Stones","Inter",19.7,22,22,"Top","Media-Alta","",0,"Basso","RILANCIA","Nuovo arrivo, avanti su Bisseck nelle rotazioni Chivu",0,"","",17.9,15,19],["D","Dimarco","Inter",41.05,46,81,"Top","Alta","",0,"Basso","RILANCIA","Titolare, top assoluto modificatore difesa - vedi premio lega specifica",1,"Wing-back sinistro, top assoluto per bonus (gol+assist)","",82.3,15,70],["D","Spence","Inter",19.7,22,33,"Top","Media-Alta","",0,"Basso","RILANCIA","Nuovo arrivo, in pole su Diouf",0,"","",30.9,15,28],["C","Barella","Inter",38.09,43,46,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"Mezzala box-to-box, piu' utile per equilibrio che per bonus puri","",38.8,15,40],["C","Calhanoglu","Inter",39.32,44,83,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare, PRIMO rigorista confermato",1,"Regista offensivo, rigorista designato","",87.1,15,72],["C","Sucic P.","Inter",20.1,23,15,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Ballott...",0,"Centrocampista jolly (mezzala/trequarti/regista), in ballottaggio con Zielinski","",7.2,8,13],["A","Martinez L.","Inter",102.01,115,218,"Top","Alta","2° rig.",0,"Basso","RILANCIA","Titolare, 2o rigorista - NOME ICONA, vedi premio lega specifica (350/800 osservato)",1,"","Nella tua lega, la scorsa asta, e' stato pagato 350/800 (43.75% del budget). Osservazione singola: potrebbe riflettere scarsita' di attaccanti in quel momento, budget squilibrato tra 2 rilanciatori, o dinamica specifica di quell'asta - non e' detto che sia il suo 'vero' valore.",230.7,14,190],["A","Thuram","Inter",106.14,119,189,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"","",187.7,13,164],["P","Di Gregorio","Juventus",27.44,31,28,"Da evitare","Bassa","",0,"Alto","EVITA","[AGGIORNATO 18/08] Scavalcato da Vicario (nuovo arrivo ufficiale 18/08/2026, prestito d...",1,"","",20.9,9,24],["D","Kalulu","Juventus",17.83,20,28,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"","",25.9,15,24],["D","Bremer","Juventus",24.98,28,35,"Top","Alta","",0,"Basso","RILANCIA","Titolare, monitorare condizione fisica post-infortunio",1,"","",32.6,15,31],["D","Kelly L.","Juventus",13.8,16,10,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",2.9,6,9],["D","Cambiaso","Juventus",20.51,23,19,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare, jolly anche a centrocampo",1,"Terzino sinistro titolare, spinta offensiva","",12.9,14,16],["C","Thuram K.","Juventus",30.91,35,32,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"Mezzala di corsa e inserimento","",24.3,15,28],["C","Locatelli","Juventus",20.1,23,15,"Buono","Alta","2° rig.",0,"Basso","RILANCIA","Titolare, 2o rigorista",0,"Regista/mediano, capitano, meno propenso al bonus offensivo","",7.5,13,13],["C","McKennie","Juventus",33.51,38,40,"Top","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Titolar...",1,"","",33.4,15,35],["A","Yildiz","Juventus",65.87,74,146,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Intoccabile, PRIMO rigorista (ballottaggio col ruolo ma favorito)",1,"","",155.4,13,127],["A","Kolo Muani","Juventus",69.4,78,177,"Top","Alta","3° rig.",0,"Basso","RILANCIA","Titolare confermato centravanti, 3o rigorista (6/6 in carriera)",0,"","",193.2,14,153],["C","Conceicao","Juventus",28.42,32,35,"Top","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Ballott...",1,"","",29.1,15,30],["P","Mandas","Lazio",17.1,19,15,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare, Provedel partito",0,"","",9.1,11,13],["D","Marusic","Lazio",14.7,17,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolare",0,"","",2.3,7,8],["D","Doekhi","Lazio",15.5,17,11,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",4.5,9,9],["D","Romagnoli","Lazio",15.5,17,15,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Per ora...",0,"","",7.1,5,13],["C","Rovella","Lazio",17.1,19,19,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Testa a...",0,"","",2.0,2,16],["C","Frattesi","Lazio",18.6,21,24,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",20.7,15,21],["C","Taylor K.","Lazio",27.6,31,30,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",22.6,15,26],["C","Zaccagni","Lazio",48.01,54,51,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare, PRIMO rigorista",1,"","",38.7,14,44],["C","Isaksen","Lazio",15.6,14,14,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] In dubbio per pubalgia, e ...",0,"","",7.2,11,10],["C","Cancellieri","Lazio",15.6,18,13,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Dietro ...",0,"","",3.1,5,12],["A","Noslin","Lazio",5.9,7,7,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Centrav...",0,"","",0.9,2,6],["P","Falcone","Lecce",15.31,17,19,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",15.1,13,16],["D","Tiago Gabriel","Lecce",15.5,17,11,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",4.4,9,9],["D","Gallo","Lecce",14.7,17,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",3.0,10,8],["C","Coulibaly L.","Lecce",17.1,19,14,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",2.7,5,12],["C","Gandelman","Lecce",15.6,18,18,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolare",0,"","",3.2,2,16],["A","Geubbels","Lecce",15.6,18,17,"Buono","Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Ballott...",0,"","",5.2,3,15],["A","N'Dri","Lecce",1.6,2,2,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Ballott...",0,"","",0,0,2],["P","Maignan","Milan",28.49,32,51,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",51.2,14,44],["D","Gabbia","Milan",15.5,17,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolare",0,"","",3.8,12,8],["D","Pavlovic","Milan",18.85,21,29,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"","",27.6,15,25],["D","Gila","Milan",15.42,17,24,"Top","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Nuovo a...",1,"","",21.9,15,20],["C","Rabiot","Milan",40.65,46,56,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"ATTENZIONE, ruolo davvero incerto: partito come centrocampista nel doppio play del 3-4-2-1, ma fonti di meta' agosto 2026 riportano che Amorim starebbe valutando di avanzarlo a trequartista alle spalle della punta. Il suo valore fantacalcistico cambia molto a seconda di dove giochera' davvero: verificare le ultime probabili formazioni vicino alla tua asta.","",50.7,15,49],["C","Modric","Milan",24.75,28,26,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato (rinnovato), occhio rotazioni Europa League",1,"Regista nel doppio mediano del 3-4-2-1 (non centrocampo a tre): imposta il gioco, poco propenso al bonus offensivo diretto","",20.7,13,23],["C","Saelemaekers","Milan",20.2,23,24,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Favorit...",1,"Esterno a tutta fascia nel 3-4-2-1 di Amorim (wing-back, non ala classica): in ballottaggio di lato con Chukwueze/Bartesaghi/Estupinan a seconda di chi gioca dall'altra parte","",19.5,14,21],["D","Bartesaghi","Milan",20.1,23,21,"Top","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Favorit...",0,"","",16.5,15,19],["C","Pulisic","Milan",61.89,52,97,"Top","Alta","2° rig.",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] In dubbio per la 1a giorna...",1,"","",69.4,15,63],["A","Leao","Milan",77.66,65,78,"Ottimo","Media-Alta","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Noie fisiche nel breve, ma...",1,"","",41.5,9,50],["A","Ramos G.","Milan",72.4,81,178,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Grande novita', TITOLARE centravanti, PRIMO rigorista",0,"","",191.5,14,153],["P","Thiam","Monza",5.2,6,6,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",3.8,7,5],["D","Delli Carri","Monza",7.6,9,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolare",0,"","",0.9,2,8],["D","Carboni A.","Monza",3.6,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolare",0,"","",4.8,1,4],["D","Mangas","Monza",17.1,19,12,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Titolare",0,"","",4.3,7,10],["C","Pessina","Monza",18.6,16,9,"Titolare","Media-Alta","1° rig.",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso inizio nove...",0,"","",1.3,10,6],["C","Colombo L.","Monza",4.0,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Spazio ...",0,"","",0,0,4],["A","Cutrone","Monza",15.6,18,17,"Buono","Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Ballott...",0,"","",9.9,5,15],["P","Meret","Napoli",19.5,22,33,"Top","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Favorit...",1,"","",32.6,14,29],["D","Di Lorenzo","Napoli",21.72,24,24,"Top","Alta","",0,"Basso","RILANCIA","Capitano, titolare confermato",1,"Terzino destro capitano, affidabile ma non il piu' offensivo","",19.0,15,21],["D","Rrahmani","Napoli",15.8,18,21,"Top","Alta","",0,"Basso","RILANCIA","Titolare centrale",1,"","",19.6,15,19],["D","Spinazzola","Napoli",16.4,18,16,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Ballottaggio con Gutierrez",0,"Esterno sinistro offensivo, spesso sottovalutato","",12.0,15,14],["C","De Bruyne","Napoli",48.73,55,50,"Top","Media-Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Titolar...",1,"Trequartista/regista offensivo, massimo impatto sui bonus","",38.3,15,44],["C","Lobotka","Napoli",18.6,21,11,"Buono","Alta","",0,"Basso","RILANCIA","Titolare, regista",0,"","",3.9,8,10],["C","McTominay","Napoli",67.61,76,109,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato anche con Allegri",1,"Mezzala d'inserimento, enorme propensione al gol (13 gol scorsa stagione)","",103.5,14,94],["A","Hojlund","Napoli",69.84,79,155,"Top","Alta","2° rig.",0,"Basso","RILANCIA","Titolare, 2o rigorista",1,"","",166.9,13,136],["A","Santos A.","Napoli",32.4,36,47,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Favorit...",0,"","",41.9,8,40],["C","Politano","Napoli",28.81,32,22,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Ballott...",1,"Esterno offensivo destro","",12.7,15,19],["A","Neres","Napoli",5.9,7,9,"Da evitare","Bassa","",0,"Alto","EVITA","[AGGIORNATO G1] Infortunio: caviglia, da valutare | In corsa per una maglia",0,"","",10.9,3,8],["D","Delprato","Parma",16.4,18,14,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",9.4,13,12],["D","Circati","Parma",14.7,17,15,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",1.9,3,13],["D","Valeri","Parma",16.4,18,14,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",9.0,13,12],["C","Bernabè","Parma",18.6,21,16,"Buono","Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolar...",0,"","",10.4,15,14],["C","Keita M.","Parma",15.6,18,19,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolare",0,"","",11.9,2,17],["A","Tourè E.","Parma",23.2,26,21,"Buono","Alta","1° rig.",1,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",5.8,5,18],["A","Romero D.","Parma",20.1,23,19,"Buono","Alta","",1,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",6.2,4,17],["P","Svilar","Roma",27.93,31,59,"Top","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",62.3,14,51],["D","Mancini","Roma",23.85,27,30,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"Centrale, capitano, buona propensione al gol su palle inattive","",24.7,15,26],["D","N'Dicka","Roma",20.64,23,26,"Top","Alta","",0,"Basso","RILANCIA","Titolare",1,"","",21.7,14,22],["D","Koulierakis","Roma",16.4,18,13,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 50% (probabile formazione G1, 16/08) | Arrivat...",0,"","",7.8,12,11],["D","Wesley","Roma",21.56,24,47,"Top","Alta","",0,"Basso","RILANCIA","Titolare esterno",1,"","",48.0,15,40],["D","Molina N.","Roma",24.8,28,46,"Top","Media-Alta","",0,"Basso","RILANCIA","Titolare, alternativa Rensch",0,"Terzino destro offensivo","",46.2,15,40],["C","Cristante","Roma",20.1,23,12,"Buono","Alta","",0,"Basso","RILANCIA","Titolare",0,"Centrocampista centrale equilibrato, buoni inserimenti aerei","",5.3,13,11],["C","Kone B.","Frosinone",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 35% (probabile formazione G1, 16/08) | Titolare",0,"","",0,0,1],["A","Soulè","Roma",26.2,29,36,"Ottimo","Media-Alta","3° rig.",0,"Basso","RILANCIA","Ballottaggio con Pellegrini, 3o rigorista. Occhio al mercato",0,"","",32.9,7,31],["A","Dybala","Roma",51.3,58,66,"Ottimo","Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Intocca...",1,"","",58.7,11,58],["A","Malen","Roma",84.62,95,222,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare, PRIMO rigorista - NOME ICONA fascia alta",1,"","",244.9,14,192],["P","Muric","Sassuolo",11.6,13,12,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Riscatt...",0,"","",8.3,11,10],["D","Idzes","Sassuolo",15.5,17,11,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolare",0,"","",4.1,8,9],["D","Walukiewicz","Sassuolo",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Ballott...",0,"","",0,0,9],["D","Obrador","Sassuolo",14.7,17,11,"Buono","Media-Alta","",0,"Basso","RILANCIA","Candidato titolare sinistra",0,"","",3.2,6,10],["C","Matic","Sassuolo",15.6,18,20,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare",0,"","",0,0,18],["A","Berardi","Sassuolo",38.53,43,69,"Ottimo","Media-Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 70% (probabile formazione G1, 16/08) | Titolar...",1,"","",68.0,10,59],["A","Pinamonti","Sassuolo",26.52,30,32,"Buono","Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Favorit...",1,"","",25.9,6,28],["A","Laurientè","Sassuolo",35.5,40,53,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Avanti ...",0,"","",48.7,10,46],["D","Ismajli","Torino",15.5,17,19,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 50% (probabile formazione G1, 16/08) | Titolare",0,"","",0.9,1,16],["D","Coco","Torino",15.5,17,13,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolar...",0,"","",4.3,6,11],["D","Pedersen","Torino",13.8,16,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolar...",0,"","",3.6,10,8],["C","Casadei","Torino",23.1,26,17,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Titolare",0,"Mezzala d'inserimento Torino","",9.7,13,15],["C","Cacciamani","Torino",4.0,4,6,"Titolare","Alta","",1,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Candida...",0,"","",5.4,7,5],["C","Vlasic","Torino",21.62,24,44,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare trequarti, PRIMO rigorista fisso",1,"","",45.0,15,38],["A","Simeone","Torino",30.2,34,60,"Ottimo","Alta","3° rig.",0,"Basso","RILANCIA","Titolare confermato centravanti, 3o rigorista emergenza",1,"","",61.7,9,52],["A","Zapata D.","Torino",8.5,10,12,"Buono","Media","2° rig.",0,"Medio","VALUTA CASO PER CASO","Ballottaggio con Oristanio/Adams, 2o rigorista se in campo",0,"","",17.4,1,11],["P","Okoye","Udinese",13.36,15,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare confermato",1,"","",15.5,14,15],["D","Kabasele","Udinese",7.6,9,8,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolare centrale",0,"","",2.2,3,7],["D","Bertola","Udinese",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolare centrale",0,"","",3.7,1,9],["D","Solet","Udinese",17.54,20,32,"Top","Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolar...",1,"Centrale difensivo, in realta' schierato quasi da attaccante aggiunto su palle inattive","",32.5,15,28],["D","Vojvoda","Udinese",16.4,18,16,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Titolar...",0,"Terzino/wing-back, titolare in attesa del recupero di Zanoli","",11.6,13,14],["C","Karlstrom","Udinese",17.1,19,22,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare regia",0,"","",0,0,19],["C","Piotrowski","Udinese",15.6,18,20,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 75% (probabile formazione G1, 16/08) | Avanti ...",0,"","",0,0,18],["C","Zaniolo","Udinese",23.2,26,52,"Top","Alta","3° rig.",0,"Basso","RILANCIA","Titolare trequarti, 3o rigorista emergenza",1,"","",55.5,15,45],["C","Ekkelenkamp","Udinese",20.1,23,19,"Ottimo","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 85% (probabile formazione G1, 16/08) | Titolar...",0,"Mezzala/trequartista offensiva, NON un mediano: gioca avanzato, buon potenziale gol","",14.2,15,17],["A","Davis K.","Udinese",23.83,27,93,"Top","Alta","1° rig.",0,"Basso","RILANCIA","Titolare confermato, PRIMO rigorista, rinnovato fino al 2031",1,"","",109.7,12,81],["D","Schingtienne","Venezia",3.6,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","[AGGIORNATO G1] Titolarita' aggiornata a 80% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",0.9,1,4],["D","Bella-Kotchap","Venezia",14.7,17,11,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",5.6,9,10],["D","Moreno M.","Venezia",13.8,16,18,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 35% (probabile formazione G1, 16/08) | Nuovo a...",0,"","",0,0,16],["C","Busio","Venezia",15.6,18,12,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Candida...",0,"","",6.8,11,11],["C","Sohm","Venezia",15.6,18,19,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Candida...",0,"","",0.9,1,17],["A","Adams A.","Venezia",26.2,29,29,"Buono","Alta","1° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Leggerm...",0,"","",22.2,7,25],["A","Rrahmani Al.","Venezia",11.7,13,15,"Buono","Media-Alta","2° rig.",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 60% (probabile formazione G1, 16/08) | Possono...",0,"","",0,0,13],["A","Yeboah J.","Venezia",11.7,13,22,"Buono","Alta","",0,"Basso","RILANCIA","[AGGIORNATO G1] Titolarita' aggiornata a 90% (probabile formazione G1, 16/08) | Rischia...",0,"","",27.7,5,19],["C","Konè M.","Roma",24.18,27,26,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolare centrocampo",1,"Centrocampista totale, tuttocampista","",21.6,15,23],["C","Diouf","Inter",16.4,18,16,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 75% (probabile formazione G1)",0,"","",11.9,14,14],["C","Zielinski","Inter",23.1,26,38,"Top","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"Mezzala offensiva/trequartista all'occorrenza, ottimo impatto","",36.6,15,33],["P","Provedel","Inter",1.2,1,6,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 5% (probabile formazione G1)",0,"","",11.7,13,3],["D","Carlos Augusto","Inter",15.5,17,12,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",5.7,13,10],["D","Pavard","Inter",14.7,17,18,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",8.7,2,16],["D","Bisseck","Inter",18.76,21,17,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",1,"","",12.0,15,15],["C","Luis Henrique","Inter",7.6,9,9,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",5.0,3,8],["C","Stankovic A.","Inter",4.0,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",1.2,1,4],["A","Esposito F.P.","Inter",38.6,43,48,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",39.7,12,41],["A","Bonny","Inter",8.5,10,8,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",3.5,5,7],["D","Kouadio","Monza",3.6,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 85% (probabile formazione G1)",0,"","",2.7,2,4],["D","Birindelli","Monza",7.6,9,8,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 85% (probabile formazione G1)",0,"","",3.0,4,7],["C","Akinsanmiro","Monza",17.1,19,21,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",3.6,1,18],["C","Colpani","Monza",11.7,13,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",5.2,14,8],["A","Varela G.","Monza",1.6,2,2,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 85% (probabile formazione G1)",0,"","",0,0,2],["D","Lucchesi","Monza",7.6,9,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0.9,1,8],["D","Antov","Monza",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,1],["D","Bakoune","Monza",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,1],["C","Ciurria","Monza",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,2],["A","Mota","Monza",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0.9,1,4],["A","Robinson J.","Monza",2.5,3,3,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0,0,3],["A","Petagna","Monza",1.1,1,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",10.1,1,2],["D","Ebosse","Udinese",1.5,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,2],["D","Kamara H.","Udinese",17.1,19,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"Esterno offensivo sinistro","",1.1,3,15],["D","Palma","Udinese",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0.9,1,2],["D","Mlacic","Udinese",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["D","Abankwah","Udinese",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 15% (probabile formazione G1)",0,"","",0,0,1],["D","Arizala","Udinese",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,9],["C","Miller L.","Udinese",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,4],["C","Zarraga","Udinese",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,1],["C","Unai Gomez","Udinese",18.6,21,15,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",2.1,5,13],["C","Camara A.","Udinese",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",1.8,1,1],["A","Bayo V.","Udinese",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0,0,1],["A","Buksa","Udinese",1.1,1,1,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,1],["A","Gueye","Udinese",8.5,10,11,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,10],["D","Zanoli","Udinese",7.6,7,10,"Titolare","Media-Alta","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso ottobre (cr...",0,"","",6.0,1,7],["C","Chakvetadze","Udinese",1.6,2,2,"Titolare","Media-Alta","",0,"Medio","COMPLETAMENTO ROSA (non sovrapagare)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso inizio sett...",0,"","",0,0,2],["D","Smolcic I.","Como",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,9],["D","Ramon","Como",13.91,16,21,"Top","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",1,"","",20.7,15,19],["D","Kaiki","Como",15.5,17,11,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",4.7,12,9],["D","Kempf","Como",17.98,20,14,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",1,"","",7.6,8,12],["D","Van Der Brempt","Como",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,2],["D","Valle","Como",14.7,17,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"","",5.3,11,9],["C","Caqueret","Como",17.1,19,19,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",3.5,2,16],["C","Milla","Como",15.6,18,20,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,18],["C","Lahdo","Como",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 15% (probabile formazione G1)",0,"","",0.9,1,1],["C","Fadera","Como",1.6,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,2],["C","Liberali","Como",17.1,19,10,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",3.4,10,9],["C","Rodriguez Je.","Como",26.1,29,20,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"Trequartista offensivo Como (ex Nico Paz, ruolo chiave)","",11.0,14,17],["A","Kuhn","Como",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,2],["A","Morata","Como",2.5,3,3,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,3],["C","Addai","Como",13.8,12,15,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso ottobre | I...",0,"","",1.8,2,10],["C","Amorim","Genoa",8.5,10,11,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,10],["C","Ellertsson","Genoa",17.1,19,22,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,19],["D","Otoa","Genoa",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",3.7,1,2],["D","Mitaj","Genoa",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,9],["D","Sabelli","Genoa",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,2],["D","Martin","Genoa",13.8,16,16,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",2.0,2,14],["D","Puczka","Genoa",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",4.6,1,2],["D","Matturro","Genoa",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 15% (probabile formazione G1)",0,"","",0,0,1],["C","Venturino","Genoa",1.1,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0.9,1,1],["A","Havel","Genoa",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,3],["D","Marin R.","Napoli",1.5,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",0.9,1,2],["C","Zambo Anguissa","Napoli",24.6,28,22,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 75% (probabile formazione G1)",0,"Mezzala fisica, buon incidenza gol","",14.6,14,19],["D","Olivera","Napoli",13.8,16,16,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"","",6.7,3,14],["D","Mazzocchi","Napoli",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Gilmour","Napoli",4.0,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,4],["C","Folorunsho","Napoli",8.5,10,11,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,10],["C","Vergara","Napoli",20.1,23,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"Mezzala offensiva emergente, possibile sorpresa","",3.0,10,10],["A","Giovane","Napoli",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,3],["A","Lang","Napoli",1.6,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,2],["A","Lucca","Napoli",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0,0,2],["D","Beukema","Napoli",14.7,17,16,"Da evitare","Bassa","",0,"Alto","EVITA","Infortunio: achille, da valutare",0,"","",1.8,2,14],["D","Buongiorno","Napoli",19.71,16,20,"Buono","Media-Alta","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso ottobre (me...",1,"","",9.2,8,12],["D","Marianucci","Napoli",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Fuori solo per Genova (col...",0,"","",0.9,1,1],["P","Corvi","Parma",1.0,1,1,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",1.0,8,1],["D","Valenti","Parma",7.6,9,10,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",0,0,9],["C","Sorensen O.","Parma",4.0,4,5,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",0,0,4],["C","Almqvist","Parma",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,3],["D","Ndiaye","Parma",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,1],["D","Carboni F.","Parma",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,1],["D","Troilo","Parma",3.6,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",4.9,4,4],["C","Ordonez C.","Parma",1.5,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,2],["C","Diallo O.","Parma",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,2],["A","Frigan","Parma",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,4],["A","Elphege","Parma",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",5.5,1,2],["P","Suzuki","Parma",11.6,13,13,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 5% (probabile formazione G1)",0,"","",1.1,2,11],["P","Daffara","Parma",11.6,13,14,"Da evitare","Bassa","",0,"Basso","EVITA","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Secondo portiere Parma die...",0,"","",1.8,1,12],["C","Nicolussi Caviglia","Parma",17.1,19,22,"Ottimo","Media-Alta","",0,"Medio","RILANCIA CON CAUTELA (rischio)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso inizio sett...",0,"","",0,0,19],["D","Zè Pedro","Cagliari",13.8,16,18,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",0,0,16],["C","Winks","Cagliari",17.1,19,22,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",0,0,19],["C","Romano","Cagliari",15.6,18,20,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",0,0,18],["D","Zappa","Cagliari",7.6,9,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0.9,1,8],["D","Kofler","Cagliari",13.8,16,18,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,16],["D","Aurelio","Cagliari",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,2],["C","Liteta","Cagliari",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Prati","Cagliari",8.5,10,11,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,10],["C","Deiola","Cagliari",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,4],["C","Felici","Cagliari",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",4.6,1,4],["A","Albarracin","Cagliari",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["A","Esposito Se.","Cagliari",22.83,26,22,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 10% (probabile formazione G1)",1,"","",4.3,4,19],["A","Mutandwa","Cagliari",5.9,7,8,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,7],["A","Borrelli","Cagliari",2.5,3,3,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",5.5,1,3],["A","Mendy P.","Cagliari",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,3],["D","Idrissi R.","Cagliari",3.6,3,5,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso fine ottobr...",0,"","",0,0,3],["D","Oyono A.","Frosinone",13.8,16,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",3.6,1,15],["D","Calvani","Frosinone",7.6,9,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",0.9,1,8],["D","Monterisi","Frosinone",14.7,17,11,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",2.3,6,10],["C","Masini","Frosinone",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,2],["A","Ghedjemis","Frosinone",15.6,18,14,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",5.0,5,13],["D","Cittadini","Frosinone",3.6,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0.9,1,4],["D","Oyono J.","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,1],["D","Bracaglia","Frosinone",13.8,16,17,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0.9,1,15],["D","Gelli J.","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Cichella","Frosinone",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,10],["C","El Azzouzi A.","Frosinone",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,1],["C","Koutsoupias","Frosinone",8.5,10,10,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",1.2,1,9],["C","Gelli F.","Frosinone",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,2],["C","Hasa","Frosinone",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,2],["A","Kvernadze","Frosinone",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",3.6,1,3],["C","Alajbegovic","Juventus",26.1,29,49,"Top","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"Investimento importante, mezzala/trequarti in ballottaggio con Conceicao","",49.0,14,42],["D","Gatti","Juventus",7.6,9,9,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",7.0,3,8],["D","Rugani","Juventus",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,1],["D","Celik","Juventus",16.4,18,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"Terzino destro, profilo piu' difensivo","",4.7,12,9],["D","Cabal","Juventus",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,1],["C","Koopmeiners","Juventus",21.29,24,23,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",1,"Puo' agire da trequartista o mezzala, piu' offensivo se avanzato","",1.1,2,20],["C","Douglas Luiz","Juventus",8.5,10,7,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",2.9,6,6],["C","Miretti","Juventus",4.0,4,8,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",16.0,2,6],["C","Zhegrova","Juventus",5.9,7,6,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",1.6,5,5],["A","Boga","Juventus",5.9,7,8,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",9.7,1,7],["A","David","Juventus",15.6,18,13,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"","",3.7,5,12],["P","Stankovic F.","Venezia",8.0,9,8,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",5.9,9,7],["D","Halhal","Venezia",7.6,9,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 85% (probabile formazione G1)",0,"","",0.9,1,8],["D","Hainaut","Venezia",3.6,4,4,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 85% (probabile formazione G1)",0,"","",1.8,3,3],["C","Perez K.","Venezia",15.6,18,20,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,18],["C","Basic","Venezia",17.1,19,15,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",2.3,4,13],["D","Haps","Venezia",13.8,16,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",4.2,9,8],["D","Gomes","Venezia",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",1.5,2,1],["D","Correia T.","Venezia",7.6,9,9,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",1.4,2,8],["D","Franjic","Venezia",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,2],["D","Sagrado","Venezia",1.5,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,2],["C","Dagasso","Venezia",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Duncan","Venezia",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0,0,2],["C","Helgason","Venezia",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,4],["A","Lauberbach","Venezia",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,1],["D","Veiga D.","Lecce",13.8,16,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",0.9,1,15],["D","Gaspar K.","Lecce",13.8,16,17,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",10.1,2,15],["C","Ngom","Lecce",8.5,10,11,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",0,0,10],["C","Pierotti","Lecce",5.9,7,7,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 90% (probabile formazione G1)",0,"","",1.4,2,6],["D","Ndaba","Lecce",1.0,1,1,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,1],["D","Jean","Lecce",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,2],["D","Siebert","Lecce",7.6,9,9,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0.9,1,8],["C","Gorter","Lecce",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Kaba","Lecce",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,1],["C","Berisha M.","Lecce",15.6,18,12,"Buono","Media","",0,"Basso","RILANCIA","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Alternativa centrocampo Le...",0,"","",3.5,6,11],["C","Maleh","Lecce",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,2],["C","Fofana Sa.","Lecce",1.0,1,1,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,1],["A","Stulic","Lecce",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",5.5,1,10],["D","Bernasconi","Atalanta",14.7,17,15,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"","",10.1,13,13],["C","Zalewski","Atalanta",5.9,7,7,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",1.5,3,6],["D","Kolasinac","Atalanta",13.8,16,16,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",6.5,2,14],["D","Kossounou","Atalanta",3.6,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,4],["C","Pasalic","Atalanta",21.6,24,13,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"Mezzala d'inserimento","",4.5,8,11],["C","De Roon","Atalanta",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,10],["C","Sulemana I.","Atalanta",4.0,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,4],["D","Hien","Atalanta",15.5,13,14,"Buono","Media-Alta","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso ottobre: ce...",1,"","",4.0,5,9],["D","Ahanor","Atalanta",14.7,17,12,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso inizio sett...",0,"","",2.6,5,11],["A","Sulemana K.","Atalanta",17.1,14,22,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso ottobre | I...",0,"","",0,0,14],["D","Missori","Sassuolo",1.0,1,1,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 90% (probabile formazione G1)",0,"","",0,0,1],["D","Doig","Sassuolo",7.6,9,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,9],["C","Thorstvedt","Sassuolo",23.1,26,20,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",12.0,13,17],["C","Adzic","Sassuolo",15.6,18,11,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",2.8,6,10],["C","Iannoni","Sassuolo",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,1],["C","Lipani","Sassuolo",1.6,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",1.8,2,2],["C","Volpato","Sassuolo",18.6,21,18,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"","",1.1,3,16],["C","Bakola","Sassuolo",15.6,18,16,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",1.6,3,14],["C","Dominguez B.","Sassuolo",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,2],["A","Bowie","Sassuolo",20.1,23,23,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",4.1,2,20],["A","Moro L.","Sassuolo",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["D","Candè","Sassuolo",3.6,3,5,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Infortunio, durata non spe...",0,"","",0,0,3],["D","Pieragnolo","Sassuolo",1.0,1,1,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Infortunio, durata non spe...",0,"","",0,0,1],["C","Boloca","Sassuolo",1.6,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Infortunio al ginocchio, da valutare",0,"","",0,0,2],["C","Konè I.","Sassuolo",21.6,18,25,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso dicembre (~...",0,"","",10.1,3,16],["P","Paleari","Torino",1.0,1,2,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 75% (probabile formazione G1)",0,"","",2.0,6,2],["D","Comuzzo","Torino",14.7,17,12,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",3.3,5,11],["D","Comert","Torino",7.6,9,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 90% (probabile formazione G1)",0,"","",0.9,1,8],["C","Gineitis","Torino",15.6,18,20,"Ottimo","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",0,0,18],["C","Fitz-Jim","Torino",8.5,10,9,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 90% (probabile formazione G1)",0,"","",1.8,3,8],["D","Biraghi","Torino",1.5,2,3,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",5.6,2,3],["C","Ilkhan","Torino",8.5,10,11,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,10],["C","Anjorin","Torino",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,1],["C","Ilic","Torino",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,1],["C","Njie","Torino",2.5,3,3,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,3],["C","Aboukhlal","Torino",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,2],["C","Oristanio","Torino",8.5,10,8,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",1.4,4,7],["A","Kulenovic","Torino",2.5,3,3,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,3],["A","Adams C.","Torino",15.6,18,18,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",4.1,2,16],["C","Chukwueze","Milan",5.9,7,7,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",6.0,10,6],["C","Loftus-Cheek","Milan",8.5,10,10,"Titolare","Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 80% (probabile formazione G1)",0,"","",5.0,2,9],["D","Tomori","Milan",15.5,17,20,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 10% (probabile formazione G1)",0,"","",14.2,2,17],["D","Diawara S.","Milan",1.5,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,2],["D","De Winter","Milan",3.6,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0.9,1,4],["D","Estupinan","Milan",3.6,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,4],["C","Ricci S.","Milan",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",5.5,1,10],["C","Musah","Milan",1.6,2,2,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",0,0,2],["C","Fofana Y.","Milan",15.6,18,19,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 10% (probabile formazione G1)",0,"","",0.9,1,17],["C","Jashari","Milan",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,10],["A","Nkunku","Milan",40.42,45,44,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 10% (probabile formazione G1)",1,"","",0.9,2,38],["A","Camarda","Milan",4.0,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",1.1,2,4],["A","Gimenez","Milan",5.9,5,8,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Infortunio caviglia, durat...",0,"","",0,0,5],["C","Amondarain","Bologna",15.6,18,20,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",0,0,18],["D","Holm","Bologna",13.8,16,17,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",7.8,2,15],["D","Lucumì","Bologna",16.4,18,16,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[CORRETTO 17/08] ATTENZIONE TRASFERIMENTO: secondo fonti dell'8/15 agosto 2026 e' in di...",0,"","",11.5,14,14],["D","De Silvestri","Bologna",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,1],["D","Helland","Bologna",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,2],["D","Casale","Bologna",3.6,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,4],["D","Alhassane","Bologna",1.5,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 15% (probabile formazione G1)",0,"","",0,0,2],["C","Moro N.","Bologna",8.5,10,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",0,0,10],["C","El Azzouzi O.","Bologna",1.6,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,2],["C","Odgaard","Bologna",20.1,23,17,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 55% (probabile formazione G1)",0,"Ruolo non stabilizzato: nato trequartista, Italiano lo aveva spostato a mezzala nella scorsa stagione per bilanciare la squadra. Tedesco lo considera 'principalmente trequartista' ma lo ha provato anche da mezzala in ritiro. Minutaggio 2025/26 in calo reale rispetto al 2024/25 (1356' contro 1968' a parita' di giornate): attenzione, non e' un titolare fisso garantito nonostante il talento.","",4.0,5,15],["C","Cambiaghi","Bologna",20.1,23,21,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"Esterno offensivo, alternativa a Rowe","",0.9,2,19],["A","Piccoli","Bologna",11.7,13,12,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",1.5,3,10],["A","Dallinga","Bologna",11.7,13,15,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,13],["D","Pedraza","Lazio",13.8,16,14,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 75% (probabile formazione G1)",0,"","",1.9,3,12],["A","Dia","Lazio",20.1,23,23,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",0,"","",2.7,2,20],["D","Provstgaard","Lazio",3.6,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 30% (probabile formazione G1)",0,"","",0,0,4],["D","Floriani Mussolini","Lazio",3.6,4,8,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",25.6,1,6],["D","Tavares N.","Lazio",14.7,17,15,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",4.4,4,13],["D","Lazzari","Lazio",1.5,2,2,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,2],["C","Belahyane","Lazio",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,1],["C","Dele-Bashiru","Lazio",15.6,18,19,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",0.9,1,17],["C","Cataldi","Lazio",8.5,10,11,"Da evitare","Bassa","",0,"Basso","EVITA","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Alternativa regia Lazio di...",0,"","",0,0,10],["C","Przyborek","Lazio",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 20% (probabile formazione G1)",0,"","",0,0,1],["A","Ratkov","Lazio",20.1,23,24,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",0.9,1,21],["D","Patric","Lazio",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","Infortunio, da valutare",0,"","",0,0,1],["D","Pellegrini Lu.","Lazio",1.6,2,2,"Da evitare","Bassa","",0,"Alto","EVITA","Infortunio caviglia, da valutare",0,"","",0,0,2],["D","Hermoso","Roma",14.98,17,12,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 70% (probabile formazione G1)",1,"","",7.3,14,11],["D","Ghilardi","Roma",7.6,9,10,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 40% (probabile formazione G1)",0,"","",0,0,9],["D","Rensch","Roma",13.8,16,10,"Buono","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",3.6,7,9],["D","Ziolkowski","Roma",1.0,1,2,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",4.6,2,2],["C","El Aynaoui","Roma",8.5,10,10,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 60% (probabile formazione G1)",0,"","",1.8,2,9],["C","Pellegrini Lo.","Roma",17.82,20,13,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[CORRETTO 17/08] Ruolo ridimensionato da Gasperini: rinnovo annuale a cifre ridotte, no...",1,"","",6.9,8,11],["C","Pisilli","Roma",15.6,18,11,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 55% (probabile formazione G1)",0,"","",3.9,7,10],["A","Castro S.","Roma",32.4,36,50,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",46.3,11,43],["D","Joao Mario","Fiorentina",3.6,4,5,"Titolare","Media-Alta","",0,"Basso","COMPLETAMENTO ROSA (non sovrapagare)","Titolarita' 70% (probabile formazione G1)",0,"","",5.9,2,4],["D","Valdepenas","Fiorentina",14.7,17,11,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 90% (probabile formazione G1)",0,"","",6.4,14,10],["C","Ndour","Fiorentina",20.1,23,16,"Buono","Alta","",0,"Basso","RILANCIA","Titolarita' 80% (probabile formazione G1)",0,"Mezzala, certezza del centrocampo Fiorentina","",9.3,11,14],["D","Pongracic","Fiorentina",7.6,9,10,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",0,0,9],["D","Dodò","Fiorentina",18.0,20,14,"Buono","Media-Alta","",0,"Basso","RILANCIA","[CORRETTO 17/08] Scheda ufficiale fantacalcio.it lo descrive 'Titolare fisso, interessa...",0,"Terzino destro titolare fisso, molto offensivo","",7.0,12,12],["D","Ranieri L.","Fiorentina",3.6,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 35% (probabile formazione G1)",0,"","",4.1,2,4],["C","Brescianini","Fiorentina",4.0,4,5,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","Titolarita' 50% (probabile formazione G1)",0,"","",0,0,4],["C","Fabbian","Fiorentina",8.5,10,11,"Da evitare","Bassa","",0,"Alto","EVITA","Titolarita' 25% (probabile formazione G1)",0,"","",0,0,10],["A","Pellegrino M.","Fiorentina",35.5,40,41,"Ottimo","Media-Alta","",0,"Basso","RILANCIA","Titolarita' 60% (probabile formazione G1)",0,"","",34.3,9,36],["D","Parisi","Fiorentina",13.8,12,16,"Buono","Media","",0,"Alto","OCCASIONE A SCONTO (rientro posticipato, prezzo gia' ridotto)","[CORRETTO: assenza breve/nota non deve azzerare la stagione] Rientro atteso novembre (c...",0,"","",0.9,1,11],["P","Perin","Juventus",8.0,9,6,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",3.0,8,5],["P","Milinkovic-Savic V.","Napoli",5.2,6,16,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",17.9,14,14],["P","Desplanches","Frosinone",1.2,1,2,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["P","Sportiello","Atalanta",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.3,7,1],["P","Happonen","Bologna",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Pessina Mas.","Bologna",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.0,3,1],["P","Sherri","Cagliari",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Tornqvist","Como",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.9,4,1],["P","Vigorito","Como",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["P","Christensen O.","Fiorentina",1.0,1,2,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",2.6,7,2],["P","Lezzerini","Fiorentina",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Lolic","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Sommariva","Genoa",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Stolz","Genoa",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Di Gennaro","Inter",1.0,1,2,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",5.5,2,2],["P","Pinsoglio","Juventus",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.8,1,1],["P","Motta","Lazio",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,3,1],["P","Renzetti","Lazio",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Terracciano","Milan",1.0,1,2,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",2.4,5,2],["P","Torriani","Milan",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.1,4,1],["P","Pizzignacco","Monza",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Strajnar","Monza",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Contini","Napoli",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","De Marzi","Roma",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["P","Gollini","Roma",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.1,12,1],["P","Russo A.","Sassuolo",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Turati","Sassuolo",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,4,1],["P","Mascardi","Torino",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["P","Siviero","Torino",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Padelli","Udinese",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.0,4,1],["P","Piana","Udinese",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["P","Grandi","Venezia",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Pozzi","Venezia",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Vismara","Atalanta",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Satalino","Sassuolo",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Penev","Lecce",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Pisseri","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["P","Radunovic","Cagliari",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["D","Britschgi","Parma",3.6,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,4],["D","Sverko","Venezia",3.6,4,9,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",34.8,1,7],["D","Goldaniga","Como",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",3.7,1,1],["D","Cuenca A.","Como",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 35% (probabile formazione G1, 16/08) | STIMA d...",0,"","",0,0,1],["D","Amey","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["D","Corrado","Frosinone",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["C","Meichtry","Genoa",15.6,18,20,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,18],["C","Traorè Hj.","Genoa",15.6,18,16,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",1.9,3,14],["C","Mkhitaryan","Inter",15.6,18,16,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",7.3,4,14],["C","Fini ","Frosinone",4.0,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,4],["C","Cremaschi","Parma",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["A","Adorante","Venezia",4.0,4,5,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,4],["A","Ekhator","Juventus",1.6,2,3,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",8.7,2,3],["A","Trepy","Cagliari",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0.9,1,1],["A","Azon","Como",1.0,1,1,"Da evitare","Bassa","",0,"Alto","EVITA","STIMA da listone (non in probabile formazione G1): riserva profonda, quotazione bassa s...",0,"","",0,0,1],["A","Vaz","Roma",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 30% (probabile formazione G1, 16/08) | STIMA d...",0,"","",0,0,1],["A","Lisman","Venezia",1.0,1,1,"Buono","Media","",0,"Medio","VALUTA CASO PER CASO","[AGGIORNATO G1] Titolarita' aggiornata a 30% (probabile formazione G1, 16/08) | STIMA d...",0,"","",0,0,1],["P","Vicario","Juventus",19.5,22,30,"Top","Alta","",0,"Basso","RILANCIA","[NUOVO 18/08/2026] Arrivo ufficiale in prestito dal Tottenham (comunicato Juventus 18/0...",0,"","",32.5,4,26]];
+const PLAYERS_DATA = PLAYERS_RAW.map((a) => ({
+  r: a[0], n: a[1], s: a[2], p5: a[3], pi: a[4], tp: a[5], t: a[6], ti: a[7],
+  rig: a[8], sor: !!a[9], ris: a[10], dec: a[11], note: a[12],
+  src: a[13] ? "REALE" : "STIMA", post: a[14] || "", oss: a[15] || "",
+  altreAste: a[16] || 0, altreAsteN: a[17] || 0,
+  mp: a[18], // MARKET PRICE: quanto si paga davvero (fair value + osservazioni altre aste)
+}));
+
+// ===================== PARAMETRI DEL MOTORE D'ASTA =====================
+// Ogni peso e' esplicito e modificabile qui, invece che sparso nel codice.
+const ENGINE = {
+  // Ogni componente e' un AGGIUSTAMENTO IN CREDITI, non un moltiplicatore.
+  // I tetti sono espressi come quota del prezzo di mercato, cosi' scalano col valore
+  // del giocatore, ma restano limitati in valore assoluto.
+  scarsita:     { maxBonus: 0.28, capCr: 45 },   // fino a +28% (max +45cr) se non ci sono alternative
+  rivali:       { maxBonus: 0.16, maxMalus: 0.10, capCr: 30 },
+  alternative:  { maxMalus: 0.30, maxBonus: 0.10, capCr: 40 },  // il freno piu' forte
+  necessita:    { maxBonus: 0.12, maxMalus: 0.10, capCr: 20 },
+  margineNormale: 1.15,   // Max Normal = prezzo di mercato + 15% di margine di trattativa
+  capTotale: 1.75,        // il Situational Max non supera mai 1.75x il prezzo di mercato
+  floorTotale: 0.70,
+};
+
+// Modulo, undici probabile e ballottaggi per tutte le 20 squadre (fonti incrociate 8-16/08/2026)
+const FORMAZIONI_DATA = {"Atalanta":{"allenatore":"Sarri","modulo":"4-3-3","modulo_incerto":false,"modulo_nota":"Rivoluzione tattica: addio alla difesa a tre di Gasperini, confermata anche in amichevole reale (11/08 vs Athletic Club)","linee":[["Carnesecchi"],["Zappacosta","Scalvini","Kristensen T.","Bernasconi"],["Samardzic","Gaetano","Ederson D.S."],["De Ketelaere","Scamacca","Raspadori"]],"ballottaggi":[["Zappacosta","Bellanova","destra difesa"],["Gaetano","De Roon","regia"],["Scamacca","Krstovic","centravanti"],["Bernasconi","Kolasinac","sinistra difesa"]]},"Bologna":{"allenatore":"Tedesco","modulo":"4-3-3","modulo_incerto":true,"modulo_nota":"Possibile anche 4-2-3-1: Tedesco valuta ancora tra i due sistemi","linee":[["Skorupski"],["Zortea","Heggem","Vitik","Miranda J."],["Ferguson","Pobega","Odgaard"],["Orsolini","Dovbyk","Rowe"]],"ballottaggi":[["Zortea","Holm","destra difesa"],["Pobega","Moro N.","centrocampo"],["Odgaard","Bernardeschi","mezzala/trequarti — ruolo non stabilizzato"],["Dovbyk","Piccoli","centravanti"]]},"Cagliari":{"allenatore":"Pisacane","modulo":"4-3-2-1","modulo_incerto":true,"modulo_nota":"Fonti divise: alcune indicano ancora 3-5-2 (modulo 2025/26), le più recenti (DAZN, fantacalcio-online) convergono su 4-3-2-1","linee":[["Caprile"],["Zè Pedro","Mina","Rodriguez Ju.","Obert"],["Adopo","Winks","Romano"],["Maldini","Fazzini"],["Kevin Carlos"]],"ballottaggi":[["Zè Pedro","Zappa","destra difesa"],["Adopo","Deiola","centrocampo"],["Kevin Carlos","Borrelli/Mendy P.","centravanti"]]},"Como":{"allenatore":"Fabregas","modulo":"4-2-3-1","modulo_incerto":false,"modulo_nota":"Sistema consolidato, confermato da tutte le fonti","linee":[["Butez"],["Couto","Ramon","Chalobah T.","Kaiki"],["Perrone","Da Cunha"],["Diao","Paz N.","Baturina"],["Douvikas"]],"ballottaggi":[["Kaiki","Valle","sinistra difesa"],["Diao","Rodriguez Je.","trequarti destra"],["Da Cunha","Milla/Caqueret","centrocampo — turnover Champions"]]},"Fiorentina":{"allenatore":"Grosso","modulo":"4-3-3","modulo_incerto":false,"modulo_nota":null,"linee":[["De Gea"],["Dodò","Dragusin","Viery","Valdepenas"],["Ndour","Oulai","Atta"],["Mastantuono","Kean","Gudmundsson A."]],"ballottaggi":[["Oulai","Fagioli/Mandragora","regia"],["Dodò","Jimenez A.","destra difesa"]]},"Frosinone":{"allenatore":"Alvini","modulo":"4-3-3","modulo_incerto":false,"modulo_nota":null,"linee":[["Palmisani"],["Oyono A.","Monterisi","Calvani","Bracaglia"],["Calò","Grillitsch","Koutsoupias"],["Ghedjemis","Raimondo","Schmid"]],"ballottaggi":[["Hasa","Calò","centrocampo"],["Schmid","Cichella","mezzala"]]},"Genoa":{"allenatore":"De Rossi","modulo":"3-4-2-1","modulo_incerto":false,"modulo_nota":null,"linee":[["Bijlow"],["Marcandalli","Ostigard","Vasquez"],["Norton-Cuffy","Frendrup","Sow","Ellertsson"],["Baldanzi","Vitinha O."],["Colombo"]],"ballottaggi":[["Sow","Amorim","centrocampo"],["Baldanzi","Messias","trequarti"],["Vitinha O.","Traorè","trequarti"]]},"Inter":{"allenatore":"Chivu","modulo":"3-5-2","modulo_incerto":false,"modulo_nota":"Confermato il sistema scudetto","linee":[["Martinez Jo."],["Akanji","Stones","Bastoni"],["Spence","Barella","Calhanoglu","Zielinski","Dimarco"],["Martinez L.","Thuram"]],"ballottaggi":[["Stones","Bisseck","difesa centro-destra"],["Zielinski","Sucic P.","centrocampo"],["Spence","Diouf","destra"]]},"Juventus":{"allenatore":"Spalletti","modulo":"4-2-3-1","modulo_incerto":false,"modulo_nota":"Possibile ritorno a difesa a quattro classica, confermato","linee":[["Di Gregorio"],["Kalulu","Bremer","Kelly L.","Cambiaso"],["Locatelli","Thuram K."],["Conceicao","Yildiz","McKennie"],["Kolo Muani"]],"ballottaggi":[["Conceicao","Alajbegovic","trequarti destra — investimento importante su Alajbegovic"],["Kolo Muani","David","centravanti"],["Locatelli","Douglas Luiz","regia"]]},"Lazio":{"allenatore":"Gattuso","modulo":"4-3-3","modulo_incerto":true,"modulo_nota":"Alcune fonti indicano 4-2-3-1: sistema non ancora del tutto assestato","linee":[["Mandas"],["Marusic","Doekhi","Romagnoli","Pedraza"],["Frattesi","Rovella","Taylor K."],["Cancellieri","Dia","Zaccagni"]],"ballottaggi":[["Cancellieri","Isaksen","destra — Isaksen frenato da pubalgia, gerarchia ribaltata di recente"],["Rovella","Cataldi","regia"],["Dia","Noslin/Ratkov","centravanti"]]},"Lecce":{"allenatore":"Di Francesco","modulo":"4-3-3","modulo_incerto":true,"modulo_nota":"Alcune fonti indicano 4-2-3-1","linee":[["Falcone"],["Veiga D.","Gaspar K.","Tiago Gabriel","Gallo"],["Coulibaly L.","Ngom","Gandelman"],["Pierotti","Geubbels","N'Dri"]],"ballottaggi":[["Gaspar K.","Siebert","difesa"],["Geubbels","Stulic","centravanti"]]},"Milan":{"allenatore":"Amorim","modulo":"3-4-2-1","modulo_incerto":false,"modulo_nota":"Sistema mai usato dal Milan prima: rivoluzione tattica completa","linee":[["Maignan"],["Gila","Gabbia","Pavlovic"],["Saelemaekers","Modric","Rabiot","Bartesaghi"],["Pulisic","Leao"],["Ramos G."]],"ballottaggi":[["Bartesaghi","Chukwueze/Estupinan","esterno sinistro"],["Leao","Nkunku","trequarti"],["Rabiot","—","ATTENZIONE: Amorim valuta di avanzarlo a trequartista, non solo centrocampista"]]},"Monza":{"allenatore":"Juric","modulo":"3-4-2-1","modulo_incerto":false,"modulo_nota":null,"linee":[["Thiam"],["Kouadio","Delli Carri","Carboni A."],["Birindelli","Akinsanmiro","Pessina","Mangas"],["Colpani","Mota"],["Cutrone"]],"ballottaggi":[["Akinsanmiro","Colombo L.","centrocampo"],["Colpani","Ciurria","trequarti"]]},"Napoli":{"allenatore":"Allegri","modulo":"4-3-3","modulo_incerto":false,"modulo_nota":"Cambio da Conte: torna la difesa a quattro","linee":[["Meret"],["Di Lorenzo","Rrahmani","Beukema","Spinazzola"],["De Bruyne","Lobotka","McTominay"],["Politano","Hojlund","Santos A."]],"ballottaggi":[["Meret","Milinkovic-Savic V.","portiere"],["Beukema","Buongiorno","difesa centrale — Buongiorno infortunato ma titolare al rientro"],["Politano","Neres","esterno destro"],["McTominay","Anguissa","centrocampo"]]},"Parma":{"allenatore":"Cuesta","modulo":"4-3-3","modulo_incerto":false,"modulo_nota":"Provato per tutto il precampionato","linee":[["Suzuki"],["Delprato","Circati","Valenti","Valeri"],["Sorensen O.","Keita M.","Bernabè"],["Almqvist","Tourè E.","Romero D."]],"ballottaggi":[["Troilo","—","titolare dietro, ormai stabile"],["Frigan","—","ultima maglia davanti, in vantaggio per pochi punti"]]},"Roma":{"allenatore":"Gasperini","modulo":"3-4-2-1","modulo_incerto":false,"modulo_nota":"Nessuna novità tattica rispetto alla scorsa stagione","linee":[["Svilar"],["Mancini","N'Dicka","Hermoso"],["Wesley","Konè M.","Cristante","Rensch"],["Soulè","Dybala"],["Malen"]],"ballottaggi":[["Hermoso","Koulierakis","difesa centrale"]]},"Sassuolo":{"allenatore":"Aquilani","modulo":"4-2-3-1","modulo_incerto":true,"modulo_nota":"Aquilani ha provato molto anche il 4-3-3 in precampionato: sistema non ancora fissato","linee":[["Muric"],["Walukiewicz","Candè","Idzes","Doig"],["Matic","Thorstvedt"],["Berardi","Adzic","Laurientè"],["Pinamonti"]],"ballottaggi":[["Muric","Turati","portiere"],["Walukiewicz","Missori","destra difesa"],["Adzic","Lipani","trequarti — Konè I. lungodegente, Lipani ne beneficia"]]},"Torino":{"allenatore":"Abate","modulo":"3-4-2-1","modulo_incerto":true,"modulo_nota":"Fonti divise tra 3-5-2 e 3-4-2-1: Abate ha provato più spesso il secondo nelle ultime settimane","linee":[["Paleari"],["Comuzzo","Coco","Comert"],["Pedersen","Casadei","Fitz-Jim","Cacciamani"],["Vlasic","Oristanio"],["Simeone"]],"ballottaggi":[["Coco","Ismajli","difesa centrale"],["Fitz-Jim","Ilkhan/Gineitis","centrocampo"],["Oristanio","Zapata D.","trequarti/attacco"]]},"Udinese":{"allenatore":"Runjaic","modulo":"3-5-2","modulo_incerto":false,"modulo_nota":null,"linee":[["Okoye"],["Bertola","Kabasele","Solet"],["Vojvoda","Ekkelenkamp","Karlstrom","Unai Gomez","Kamara H."],["Zaniolo","Davis K."]],"ballottaggi":[["Vojvoda","Zanoli","destra — Zanoli infortunato (rientro ottobre), Vojvoda titolare nel frattempo"],["Karlstrom","Piotrowski","centrocampo"]]},"Venezia":{"allenatore":"Stroppa","modulo":"3-5-2","modulo_incerto":true,"modulo_nota":"Alcune fonti indicano 3-4-2-1","linee":[["Stankovic F."],["Bella-Kotchap","Schingtienne","Halhal"],["Correia T.","Basic","Busio","Sohm","Haps"],["Adams A.","Yeboah J."]],"ballottaggi":[["Yeboah J.","Rrahmani Al.","attacco — dato piu' fresco (16/08) mostra Yeboah al 90%, non piu' in dubbio"]]}};
+
+// Budget ideale per Reparto x Fascia, su 800cr totali. Calibrato sul dato aggregato di mercato
+// (fantacalcio-online: 7% P / 19% D / 32% C / 42% A) combinato col peso di Fair Value di ciascuna
+// fascia dentro il proprio reparto nel nostro modello aggiornato (post-blend con le aste osservate).
+const BUDGET_IDEALE = {
+  "P": {
+    "Top": 32.1,
+    "Ottimo": 10.2,
+    "Buono": 2.0,
+    "Titolare": 0.0
+  },
+  "D": {
+    "Top": 48.5,
+    "Ottimo": 23.6,
+    "Buono": 57.1,
+    "Titolare": 14.7
+  },
+  "C": {
+    "Top": 101.9,
+    "Ottimo": 58.0,
+    "Buono": 59.8,
+    "Titolare": 23.9
+  },
+  "A": {
+    "Top": 180.9,
+    "Ottimo": 84.3,
+    "Buono": 47.4,
+    "Titolare": 12.0
+  }
+};
+
+const COLORS = {
+  bg: "#10151A", surface: "#1A2129", surface2: "#212A33", border: "#2A333D",
+  green: "#3DAA5C", greenDim: "#2A7A42", gold: "#E8A33D", goldDim: "#B87F2C",
+  red: "#DC5050", redDim: "#A83A3A", text: "#F2F0EA", muted: "#8B96A0", mutedDark: "#5A6570",
+};
+
+const ROLE_INFO = {
+  P: { label: "Portieri", color: "#E8C23D" },
+  D: { label: "Difensori", color: "#3DAA6E" },
+  C: { label: "Centrocampisti", color: "#3D8FE8" },
+  A: { label: "Attaccanti", color: "#E86B3D" },
+};
+const ROLE_SLOTS = { P: 3, D: 8, C: 8, A: 6 };
+const TOTAL_SLOTS = 25;
+const ROLE_SEQUENCE = ["P", "D", "C", "A"];
+const TIER_ORDER = ["Top", "Ottimo", "Buono", "Titolare", "Da evitare"];
+
+const TIER_STYLE = {
+  Top: { color: COLORS.gold, bg: "rgba(232,163,61,0.14)" },
+  Ottimo: { color: COLORS.green, bg: "rgba(61,170,92,0.14)" },
+  Buono: { color: "#7FB88A", bg: "rgba(127,184,138,0.10)" },
+  Titolare: { color: "#6FA0C9", bg: "rgba(111,160,201,0.10)" },
+  "Da evitare": { color: COLORS.red, bg: "rgba(220,80,80,0.14)" },
+};
+
+function tierRank(t) { return TIER_ORDER.indexOf(t); }
+
+function buildCyclicOrder(players, role, startLetter) {
+  const pool = players
+    .map((p, idx) => ({ ...p, _idx: idx }))
+    .filter((p) => p.r === role && p.status === "available")
+    .sort((a, b) => a.n.localeCompare(b.n, "it"));
+  if (!pool.length) return [];
+  if (!startLetter) return pool;
+  const L = startLetter.toUpperCase();
+  let startPos = pool.findIndex((p) => p.n.toUpperCase().charAt(0) >= L);
+  if (startPos === -1) startPos = 0;
+  return [...pool.slice(startPos), ...pool.slice(0, startPos)];
+}
+
+function emptyRoster() { return { P: [], D: [], C: [], A: [] }; }
+function defaultTeams() {
+  return Array.from({ length: 8 }, (_, i) => ({
+    id: i, name: i === 0 ? "La mia squadra" : `Squadra ${i + 1}`,
+    budget: 800, spent: 0, roster: emptyRoster(),
+  }));
+}
+function slotsUsed(roster) { return ROLE_SEQUENCE.reduce((a, r) => a + roster[r].length, 0); }
+
+// Il prezzo base d'asta e' 1cr, non la quotazione: per qualsiasi squadra, il rilancio massimo
+// possibile ORA e' il budget residuo meno almeno 1cr riservato per ciascuno degli ALTRI slot
+// ancora da riempire (25 totali, non solo per ruolo). Vale per tutte le 8 squadre, non solo la tua.
+function maxBidFor(team) {
+  const slotsLeft = TOTAL_SLOTS - slotsUsed(team.roster);
+  const budgetLeft = team.budget - team.spent;
+  if (slotsLeft <= 0) return 0;
+  return Math.max(0, budgetLeft - Math.max(0, slotsLeft - 1));
+}
+
+// ===================== AUCTION ENGINE =====================
+// Calcolo puramente matematico e deterministico. Nessuna AI decide i prezzi:
+// l'AI (vedi getAuctionAdvice piu' sotto) potra' solo INTERPRETARE questi numeri.
+//
+// Catena: marketPrice -> scarsita' -> pressione avversari -> costo-opportunita' -> cap/floor
+//         -> situationalMax -> decisione (AGGREDISCI / RILANCIA / VALUTA / MOLLA)
+
+// Quanto puo' realmente spendere un avversario per QUESTO giocatore: non il budget nudo,
+// ma il budget al netto di 1cr per ogni altro slot che deve ancora riempire.
+function capacitaRealeAvversario(team, ruolo) {
+  if (team.roster[ruolo].length >= ROLE_SLOTS[ruolo]) return 0; // non gli serve questo ruolo
+  return maxBidFor(team);
+}
+
+// COSTO-OPPORTUNITA': confronta il giocatore con le migliori alternative ancora libere
+// nello stesso ruolo e fascia comparabile. Tante alternative valide a prezzo simile =
+// meno senso spingersi oltre; nessuna alternativa = ha senso pagare di piu'.
+function costoOpportunita(player, allPlayers) {
+  const alternative = allPlayers
+    .filter((p) => p.r === player.r && p.n !== player.n && p.status !== "assigned")
+    .filter((p) => p.t === "Top" || p.t === "Ottimo")
+    .sort((a, b) => b.mp - a.mp)
+    .slice(0, 5);
+  // Sostituti veri: costano al massimo il 110% di questo giocatore
+  const sostituti = alternative.filter((p) => p.mp <= player.mp * 1.10);
+  return { nAlternative: sostituti.length, alternative: alternative.slice(0, 3) };
+}
+
+function situationalMax(player, myTeam, allTeams, allPlayers) {
+  const hardCap = maxBidFor(myTeam);                 // vincolo invalicabile
+  const base = player.mp || player.pi;               // prezzo di mercato
+  const maxNormal = Math.round(base * ENGINE.margineNormale);
+  if (hardCap <= 0) {
+    return { max: 0, maxNormal, molla: 1, base, breakdown: [], fattori: {}, };
+  }
+
+  const breakdown = [];   // ogni voce: { label, cr, detail } — spiegabile a occhio
+  const clamp = (v, lim) => Math.max(-lim, Math.min(lim, v));
+
+  // --- A. SCARSITA' (in crediti) -------------------------------------------------
+  const roleAvailable = allPlayers.filter((p) => p.r === player.r && p.status !== "assigned");
+  const topOttimoLeft = roleAvailable.filter((p) => p.t === "Top" || p.t === "Ottimo").length;
+  let adjScarsita = 0;
+  if (player.t === "Top" || player.t === "Ottimo") {
+    // pieno bonus con 1 solo rimasto, zero da 6 in su
+    const s = Math.max(0, Math.min(1, (6 - topOttimoLeft) / 5));
+    adjScarsita = Math.round(clamp(base * ENGINE.scarsita.maxBonus * s, ENGINE.scarsita.capCr));
+  }
+  if (adjScarsita !== 0) breakdown.push({ label: "Scarsita'", cr: adjScarsita, detail: `${topOttimoLeft} Top/Ottimo liberi in ${player.r}` });
+
+  // --- B. RIVALI (capacita' reale, bisogno del ruolo, capitale gia' bruciato) -----
+  const rivali = allTeams.filter((t) => t.id !== myTeam.id);
+  const rivaliInGara = rivali.filter((t) => t.roster[player.r].length < ROLE_SLOTS[player.r]);
+  const spendibili = rivaliInGara.map((t) => maxBidFor(t));
+  const rivaliCompetitivi = spendibili.filter((c) => c >= base).length;
+  const quotaCapitale = rivali.length
+    ? rivali.reduce((a, t) => a + (t.budget - t.spent), 0) / rivali.reduce((a, t) => a + t.budget, 0)
+    : 1;   // 1 = nessuno ha ancora speso, 0 = tutti a secco
+  // piu' rivali competitivi e piu' capitale ancora in giro -> pressione; se sono a secco -> sconto
+  const spintaRivali = Math.min(1, rivaliCompetitivi / 4) * 0.65 + quotaCapitale * 0.35;
+  let adjRivali;
+  if (spintaRivali >= 0.5) {
+    adjRivali = Math.round(clamp(base * ENGINE.rivali.maxBonus * ((spintaRivali - 0.5) / 0.5), ENGINE.rivali.capCr));
+  } else {
+    adjRivali = -Math.round(clamp(base * ENGINE.rivali.maxMalus * ((0.5 - spintaRivali) / 0.5), ENGINE.rivali.capCr));
+  }
+  if (adjRivali !== 0) breakdown.push({ label: "Rivali", cr: adjRivali, detail: `${rivaliCompetitivi} possono competere · ${Math.round(quotaCapitale*100)}% capitale ancora in gioco` });
+
+  // --- C. COSTO-OPPORTUNITA' (il freno principale) --------------------------------
+  const opp = costoOpportunita(player, allPlayers);
+  let adjAlternative;
+  if (opp.nAlternative === 0) {
+    adjAlternative = Math.round(clamp(base * ENGINE.alternative.maxBonus, ENGINE.alternative.capCr));
+  } else {
+    const saturazione = Math.min(1, opp.nAlternative / 4);
+    adjAlternative = -Math.round(clamp(base * ENGINE.alternative.maxMalus * saturazione, ENGINE.alternative.capCr));
+  }
+  breakdown.push({
+    label: "Alternative", cr: adjAlternative,
+    detail: opp.nAlternative === 0 ? "nessun sostituto comparabile" : `${opp.nAlternative} sostituti a prezzo simile`,
+  });
+
+  // --- D. NECESSITA' DELLA MIA ROSA ----------------------------------------------
+  const slotRuoloLiberi = ROLE_SLOTS[player.r] - myTeam.roster[player.r].length;
+  const hoGiaTopNelRuolo = allPlayers.some((p) => p.owner === myTeam.id && p.r === player.r && (p.t === "Top" || p.t === "Ottimo"));
+  let adjNecessita = 0;
+  if (slotRuoloLiberi <= 0) {
+    adjNecessita = -Math.round(clamp(base * ENGINE.necessita.maxMalus, ENGINE.necessita.capCr));
+  } else if (hoGiaTopNelRuolo) {
+    adjNecessita = -Math.round(clamp(base * ENGINE.necessita.maxMalus * 0.6, ENGINE.necessita.capCr));
+  } else if ((player.t === "Top" || player.t === "Ottimo") && slotRuoloLiberi > 0) {
+    // mi serve ancora un giocatore di peso in questo ruolo
+    const urgenza = Math.min(1, slotRuoloLiberi / ROLE_SLOTS[player.r] + 0.3);
+    adjNecessita = Math.round(clamp(base * ENGINE.necessita.maxBonus * urgenza, ENGINE.necessita.capCr));
+  }
+  if (adjNecessita !== 0) breakdown.push({
+    label: "La tua rosa", cr: adjNecessita,
+    detail: slotRuoloLiberi <= 0 ? `ruolo ${player.r} gia' completo`
+      : hoGiaTopNelRuolo ? `hai gia' un Top/Ottimo in ${player.r}`
+      : `ti mancano ${slotRuoloLiberi} slot in ${player.r}`,
+  });
+
+  // --- SOMMA + CAP/FLOOR ----------------------------------------------------------
+  const somma = maxNormal + adjScarsita + adjRivali + adjAlternative + adjNecessita;
+  const capTot = Math.round(base * ENGINE.capTotale);
+  const floorTot = Math.round(base * ENGINE.floorTotale);
+  let situational = Math.max(floorTot, Math.min(capTot, somma));
+  const limitatoDalCap = somma > capTot;
+  const finalMax = Math.min(hardCap, situational);
+  const limitatoDalBudget = hardCap < situational;
+
+  return {
+    max: finalMax, maxNormal, molla: finalMax + 1, base, breakdown,
+    fattori: {
+      topOttimoLeft, rivaliCompetitivi, nAlternative: opp.nAlternative,
+      alternative: opp.alternative, limitatoDalCap, limitatoDalBudget,
+      totaleAggiustamenti: adjScarsita + adjRivali + adjAlternative + adjNecessita,
+    },
+  };
+}
+
+
+// DECISIONE a 4 livelli, in funzione del prezzo attuale sul tavolo rispetto ai riferimenti.
+function decisioneAsta(player, prezzoAttuale, sitMax) {
+  const base = sitMax.base;
+  const target = player.tp;
+  const max = sitMax.max;
+  if (max <= 0) return { label: "MOLLA", color: COLORS.red, hint: "Non hai slot o budget per questo giocatore" };
+  if (player.t === "Da evitare") return { label: "MOLLA", color: COLORS.red, hint: "Fascia da evitare: non vale il rischio" };
+  if (prezzoAttuale > max) return { label: "MOLLA", color: COLORS.red, hint: `Sopra il tuo massimo situazionale (${max}cr)` };
+  if (prezzoAttuale <= base * 0.85) return { label: "AGGREDISCI", color: "#2ECC71", hint: "Sotto il valore di mercato: occasione" };
+  if (prezzoAttuale <= target) return { label: "RILANCIA", color: COLORS.green, hint: "Ancora dentro il prezzo di trattativa" };
+  return { label: "VALUTA", color: COLORS.gold, hint: `Sopra il target (${target}cr) ma sotto il massimo (${max}cr)` };
+}
+
+// ===================== INTERFACCIA PER L'AI (non ancora collegata) =====================
+// Il motore calcola i numeri; l'AI potra' solo spiegarli. maxPrice arriva gia' deciso
+// e NON e' modificabile dall'AI: e' un vincolo, non un suggerimento.
+// In futuro questa funzione chiamera' un endpoint serverless (mai una API key nel frontend).
+async function getAuctionAdvice(context) {
+  // context = { player, prezzoAttuale, fairValue, targetPrice, situationalMax, decisione,
+  //             budget, rosa, slotResidui, topRimasti, avversari, alternative }
+  // Ritorno atteso: { decision, maxPrice, confidence, reason, keyFactors }
+  // Finche' il backend non esiste, restituisce la decisione del motore matematico senza AI.
+  return {
+    decision: context.decisione?.label ?? "VALUTA",
+    maxPrice: context.situationalMax,   // vincolo: l'AI non puo' alzarlo
+    confidence: null,
+    reason: "Motore matematico locale (AI non ancora collegata)",
+    keyFactors: context.keyFactors ?? [],
+  };
+}
+
+
+function AstaLive() {
+  const [view, setView] = useState("setup");
+  const [teams, setTeams] = useState(defaultTeams());
+  const [players, setPlayers] = useState(() => PLAYERS_DATA.map((p) => ({ ...p, status: "available", owner: null, paid: null })));
+  const [currentRole, setCurrentRole] = useState("P");
+  const [roleOrder, setRoleOrder] = useState([]);
+  const [roleIdx, setRoleIdx] = useState(0);
+  const [needsStartLetter, setNeedsStartLetter] = useState(true);
+  const [startLetterInput, setStartLetterInput] = useState("");
+  const [assignTeam, setAssignTeam] = useState(0);
+  const [assignPrice, setAssignPrice] = useState("1");
+  const [showRecs, setShowRecs] = useState(true);
+  const [recExpanded, setRecExpanded] = useState(false);
+  const [recTierFilter, setRecTierFilter] = useState(["Top", "Ottimo", "Buono", "Titolare"]);
+  const [recRoleScope, setRecRoleScope] = useState("current"); // "current" | "all"
+  const [search, setSearch] = useState("");
+  const [detailPlayer, setDetailPlayer] = useState(null);
+  const [editingAssignment, setEditingAssignment] = useState(null); // giocatore assegnato in modifica (rimuovi/prezzo)
+  const [listoneReport, setListoneReport] = useState(null); // esito della lettura di un listone ricaricato, in attesa di conferma
+  const [editPriceValue, setEditPriceValue] = useState("1");
+  const [loaded, setLoaded] = useState(false);
+  const [toast, setToast] = useState(null);
+  const [formTeam, setFormTeam] = useState(null);
+  const [listoneSearch, setListoneSearch] = useState("");
+  const [listoneRole, setListoneRole] = useState("ALL");
+  const [listoneTier, setListoneTier] = useState("ALL");
+  const [listoneLimit, setListoneLimit] = useState(40);
+  const [osservatiRole, setOsservatiRole] = useState("ALL");
+  const [osservatiLimit, setOsservatiLimit] = useState(40);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem("asta-state");
+        if (raw) {
+          const s = JSON.parse(raw);
+          setTeams(s.teams || defaultTeams());
+          setPlayers(s.players || PLAYERS_DATA.map((p) => ({ ...p, status: "available", owner: null, paid: null })));
+          setCurrentRole(s.currentRole || "P");
+          setRoleOrder(s.roleOrder || []);
+          setRoleIdx(s.roleIdx || 0);
+          setNeedsStartLetter(s.needsStartLetter ?? true);
+          setView(s.view || "setup");
+        }
+      } catch (e) {}
+      setLoaded(true);
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!loaded) return;
+    const state = { teams, players, currentRole, roleOrder, roleIdx, needsStartLetter, view };
+    try { localStorage.setItem("asta-state", JSON.stringify(state)); } catch (e) { /* quota piena: ignoro */ }
+  }, [teams, players, currentRole, roleOrder, roleIdx, needsStartLetter, view, loaded]);
+
+  function showToast(msg, kind = "info") {
+    setToast({ msg, kind });
+    setTimeout(() => setToast(null), 2600);
+  }
+
+  const myTeam = teams[0];
+  const assignCap = maxBidFor(teams[assignTeam]);
+
+  const currentPlayer = useMemo(() => {
+    if (needsStartLetter || roleIdx >= roleOrder.length || roleIdx < 0) return null;
+    const ref = roleOrder[roleIdx];
+    const p = players[ref._idx];
+    // Mostro il giocatore se e' disponibile o passato (rivedibile scorrendo indietro).
+    // Solo chi e' gia' assegnato ad una squadra non si mostra piu' qui (si vede dal tab Rose).
+    return p && p.status !== "assigned" ? p : null;
+  }, [roleOrder, roleIdx, needsStartLetter, players]);
+
+  const passatiInRole = useMemo(
+    () => players.filter((p) => p.r === currentRole && p.status === "passato"),
+    [players, currentRole]
+  );
+
+  // per i consigli: disponibili E saltati contano ancora (non sono di nessuno), solo gli assegnati escono
+  const gettablePlayers = useMemo(() => players.filter((p) => p.status !== "assigned"), [players]);
+
+  // ---- punto 1: budget massimo di rilancio ORA, non solo media ----
+  const budgetInfo = useMemo(() => {
+    const slotsLeftMine = TOTAL_SLOTS - slotsUsed(myTeam.roster);
+    const budgetLeftMine = myTeam.budget - myTeam.spent;
+    const avgPerSlot = slotsLeftMine > 0 ? budgetLeftMine / slotsLeftMine : 0;
+    // riservo almeno 1 credito per ciascuno degli ALTRI slot ancora da riempire
+    const maxRilancioOra = budgetLeftMine - Math.max(0, slotsLeftMine - 1);
+    return { slotsLeftMine, budgetLeftMine, avgPerSlot, maxRilancioOra };
+  }, [myTeam]);
+
+  const recommendations = useMemo(() => {
+    const scopeRole = recRoleScope === "current" ? currentRole : null;
+    let pool = gettablePlayers.filter((p) => (scopeRole ? p.r === scopeRole : true));
+    pool = pool.filter((p) => recTierFilter.includes(p.t));
+    pool = [...pool].sort((a, b) => tierRank(a.t) - tierRank(b.t) || a.pi - b.pi);
+    const roleAvailableCurrent = gettablePlayers.filter((p) => p.r === currentRole);
+    const topLeft = roleAvailableCurrent.filter((p) => p.t === "Top").length;
+    return { pool, topLeft };
+  }, [gettablePlayers, currentRole, recTierFilter, recRoleScope]);
+
+  // Pannello scarsita': per OGNI ruolo (non solo quello aperto ora), quanti Top/Ottimo restano
+  // liberi rispetto al totale di partenza, e quanti slot devono ancora riempire tutte le 8 squadre.
+  // E' la vista d'insieme che manca al Situational Max (che ragiona solo sul giocatore aperto).
+  const scarcityByRole = useMemo(() => {
+    const out = {};
+    for (const r of ROLE_SEQUENCE) {
+      const totaleTopOttimoIniziale = PLAYERS_DATA.filter((p) => p.r === r && (p.t === "Top" || p.t === "Ottimo")).length;
+      const rimastiTopOttimo = gettablePlayers.filter((p) => p.r === r && (p.t === "Top" || p.t === "Ottimo")).length;
+      const slotTotaliRuolo = teams.length * ROLE_SLOTS[r];
+      const slotRiempiti = teams.reduce((a, t) => a + t.roster[r].length, 0);
+      const slotResidui = slotTotaliRuolo - slotRiempiti;
+      const pctRimasto = totaleTopOttimoIniziale > 0 ? rimastiTopOttimo / totaleTopOttimoIniziale : 1;
+      out[r] = { rimastiTopOttimo, totaleTopOttimoIniziale, slotResidui, pctRimasto };
+    }
+    return out;
+  }, [gettablePlayers, teams]);
+
+  // Budget speso vs budget ideale, per reparto e fascia, per LA TUA squadra. Il piano ideale
+  // (BUDGET_IDEALE) e' calibrato su 800cr: lo scalo al budget iniziale reale della tua squadra,
+  // cosi' funziona anche con basi diverse (500, 1000...).
+  const budgetTracking = useMemo(() => {
+    const scalaBudget = myTeam.budget / 800;
+    const out = {};
+    for (const r of ROLE_SEQUENCE) {
+      out[r] = { fasce: {}, totaleSpeso: 0, totaleIdeale: 0 };
+      for (const tier of ["Top", "Ottimo", "Buono", "Titolare"]) {
+        const ideale = (BUDGET_IDEALE[r]?.[tier] || 0) * scalaBudget;
+        const nomiPresi = myTeam.roster[r];
+        const speso = players
+          .filter((p) => p.r === r && p.t === tier && p.owner === myTeam.id)
+          .reduce((a, p) => a + (p.paid || 0), 0);
+        out[r].fasce[tier] = { ideale: Math.round(ideale), speso };
+        out[r].totaleIdeale += ideale;
+        out[r].totaleSpeso += speso;
+      }
+    }
+    return out;
+  }, [players, myTeam]);
+
+  const searchResults = useMemo(() => {
+    if (!search.trim()) return [];
+    const q = search.toLowerCase();
+    return gettablePlayers.filter((p) => p.n.toLowerCase().includes(q)).slice(0, 10);
+  }, [search, gettablePlayers]);
+
+  function startRolePhase(letter) {
+    const order = buildCyclicOrder(players, currentRole, letter);
+    setRoleOrder(order);
+    setRoleIdx(0);
+    setNeedsStartLetter(false);
+    setStartLetterInput("");
+  }
+
+  // ---- punto 3: giro successivo per i saltati, invece di sparire ----
+  function startNewGiro() {
+    const pool = players
+      .map((p, idx) => ({ ...p, _idx: idx }))
+      .filter((p) => p.r === currentRole && p.status === "passato")
+      .sort((a, b) => a.n.localeCompare(b.n, "it"));
+    setPlayers((prev) => prev.map((p) => (p.r === currentRole && p.status === "passato" ? { ...p, status: "available" } : p)));
+    setRoleOrder(pool);
+    setRoleIdx(0);
+    showToast(`Nuovo giro: ${pool.length} giocatori saltati in precedenza`, "info");
+  }
+
+  function nextPlayer() {
+    let i = roleIdx + 1;
+    while (i < roleOrder.length && players[roleOrder[i]._idx].status !== "available") i++;
+    setRoleIdx(i >= roleOrder.length ? roleOrder.length : i);
+    setAssignPrice("1");
+  }
+
+  // Torna indietro nella sequenza corrente: utile per rivedere la scheda di chi e' appena
+  // stato chiamato in asta. Salta solo chi nel frattempo e' stato assegnato ad una squadra
+  // (quello si rivede dal tab Rose); chi e' ancora disponibile o passato si puo' rivedere.
+  function prevPlayer() {
+    let i = roleIdx - 1;
+    while (i >= 0 && players[roleOrder[i]._idx].status === "assigned") i--;
+    if (i < 0) { showToast("Sei gia' al primo giocatore del giro", "info"); return; }
+    setRoleIdx(i);
+    setAssignPrice("1");
+  }
+
+  function assignPlayer() {
+    if (!currentPlayer) return;
+    const price = parseInt(assignPrice, 10);
+    if (!price || price < 1) { showToast("Inserisci un prezzo valido", "warn"); return; }
+    const team = teams[assignTeam];
+    if (team.roster[currentPlayer.r].length >= ROLE_SLOTS[currentPlayer.r]) {
+      showToast(`${team.name} ha gia' completato il ruolo ${currentPlayer.r}`, "warn"); return;
+    }
+    const cap = maxBidFor(team);
+    if (price > cap) {
+      showToast(`Max ${cap}cr per ${team.name}: deve restare almeno 1cr per ogni altro slot da riempire`, "warn");
+      return;
+    }
+    setPlayers((prev) => prev.map((p) => (p === currentPlayer ? { ...p, status: "assigned", owner: assignTeam, paid: price } : p)));
+    setTeams((prev) => prev.map((t, i) => i === assignTeam
+      ? { ...t, spent: t.spent + price, roster: { ...t.roster, [currentPlayer.r]: [...t.roster[currentPlayer.r], currentPlayer.n] } }
+      : t));
+    showToast(`${currentPlayer.n} -> ${team.name} (${price}cr)`, "success");
+    setAssignPrice("1");
+    setTimeout(nextPlayer, 50);
+  }
+
+  function markUnsold() {
+    if (!currentPlayer) return;
+    setPlayers((prev) => prev.map((p) => (p === currentPlayer ? { ...p, status: "passato" } : p)));
+    showToast(`${currentPlayer.n}: nessuno lo prende, va al giro successivo`, "info");
+    nextPlayer();
+  }
+
+  // Normalizza un nome per il confronto: minuscolo, senza accenti/apostrofi, spazi puliti.
+  // Stessa logica usata per costruire il database, cosi' il matching e' coerente.
+  function normalizeName(s) {
+    if (!s) return "";
+    return s
+      .toString().toLowerCase().trim()
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // rimuove accenti
+      .replace(/['`]/g, "")
+      .replace(/\s+/g, " ");
+  }
+
+  // Ricarica il listone ufficiale (formato Fantacalcio.it: Id, R, RM, Nome, Squadra, Qt.A, Qt.I,
+  // Diff., Qt.A M, Qt.I M, Diff.M, FVM, FVM M — foglio "Tutti"). Aggiorna SOLO i dati di mercato
+  // (ruolo, squadra, quotazione) per i giocatori gia' nel database (matching per nome); il Fair
+  // Value/tier/note restano quelli del nostro modello, non vengono toccati. I nomi non trovati nel
+  // database vengono segnalati come nuovi arrivi, da aggiungere manualmente (serve verifica
+  // individuale prima di dargli un prezzo, come fatto finora per Vicario).
+  function parseListoneFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const wb = XLSX.read(e.target.result, { type: "array" });
+        const sheetName = wb.SheetNames.includes("Tutti") ? "Tutti" : wb.SheetNames[0];
+        const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: null });
+
+        // trovo la riga di intestazione (contiene "Nome" e "Squadra")
+        let headerIdx = rows.findIndex((r) => r && r.includes("Nome") && r.includes("Squadra"));
+        if (headerIdx === -1) { showToast("Formato file non riconosciuto: manca l'intestazione Nome/Squadra", "warn"); return; }
+        const header = rows[headerIdx];
+        const idx = {
+          ruolo: header.indexOf("R"), nome: header.indexOf("Nome"), squadra: header.indexOf("Squadra"),
+          qta: header.indexOf("Qt.A"), fvm: header.indexOf("FVM"),
+        };
+        if (idx.nome === -1 || idx.squadra === -1) { showToast("Colonne Nome/Squadra non trovate", "warn"); return; }
+
+        const righeListone = rows.slice(headerIdx + 1).filter((r) => r && r[idx.nome]);
+        const byName = new Map();
+        for (const p of players) byName.set(normalizeName(p.n), p);
+
+        let aggiornati = 0, invariati = 0;
+        const nuovi = [];
+        const updates = new Map(); // nome originale -> {squadra, qta, fvm}
+
+        for (const r of righeListone) {
+          const nomeListone = r[idx.nome];
+          const key = normalizeName(nomeListone);
+          const match = byName.get(key);
+          const squadra = idx.squadra > -1 ? r[idx.squadra] : null;
+          const qta = idx.qta > -1 ? r[idx.qta] : null;
+          const fvm = idx.fvm > -1 ? r[idx.fvm] : null;
+
+          if (match) {
+            const cambiato = (squadra && squadra !== match.s) || (qta != null && qta !== match.qta);
+            if (cambiato) { updates.set(match.n, { squadra, qta, fvm }); aggiornati++; }
+            else invariati++;
+          } else {
+            nuovi.push({ nome: nomeListone, ruolo: idx.ruolo > -1 ? r[idx.ruolo] : "?", squadra, qta, fvm });
+          }
+        }
+
+        setListoneReport({ aggiornati, invariati, nuovi, updates, totaleRighe: righeListone.length });
+      } catch (err) {
+        showToast("Errore nella lettura del file: " + err.message, "warn");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  // Applica gli aggiornamenti trovati (squadra/quotazione) ai giocatori esistenti.
+  // I nuovi arrivi NON vengono aggiunti automaticamente: vanno verificati uno a uno
+  // (ruolo tattico, titolarita') prima di entrare nel database, come fatto per Vicario.
+  function applyListoneUpdates() {
+    if (!listoneReport) return;
+    setPlayers((prev) => prev.map((p) => {
+      const u = listoneReport.updates.get(p.n);
+      if (!u) return p;
+      return { ...p, s: u.squadra || p.s, p5: u.qta != null ? u.qta : p.p5 };
+    }));
+    showToast(`Listone aggiornato: ${listoneReport.aggiornati} giocatori`, "success");
+    setListoneReport(null);
+  }
+
+  // Annulla un'assegnazione: il giocatore torna disponibile, il budget e lo slot tornano
+  // alla squadra. Utile per correggere un errore (squadra sbagliata, giocatore sbagliato)
+  // senza dover ricominciare l'asta da capo.
+  function removeAssignment(player) {
+    if (player.owner == null) return;
+    const teamId = player.owner;
+    const paid = player.paid || 0;
+    setPlayers((prev) => prev.map((p) => (p === player ? { ...p, status: "available", owner: null, paid: null } : p)));
+    setTeams((prev) => prev.map((t) => t.id === teamId
+      ? { ...t, spent: t.spent - paid, roster: { ...t.roster, [player.r]: t.roster[player.r].filter((n) => n !== player.n) } }
+      : t));
+    showToast(`${player.n} rimosso da ${teams[teamId]?.name || "squadra"}, torna disponibile`, "info");
+  }
+
+  // Corregge solo il prezzo pagato per un giocatore gia' assegnato, senza toccare
+  // squadra o stato: utile per un errore di battitura sul prezzo.
+  function editAssignmentPrice(player, newPrice) {
+    if (player.owner == null) return;
+    const teamId = player.owner;
+    const oldPaid = player.paid || 0;
+    const diff = newPrice - oldPaid;
+    const team = teams[teamId];
+    if (team.spent + diff > team.budget) {
+      showToast(`Budget insufficiente per ${team.name} con questo nuovo prezzo`, "warn");
+      return;
+    }
+    setPlayers((prev) => prev.map((p) => (p === player ? { ...p, paid: newPrice } : p)));
+    setTeams((prev) => prev.map((t) => t.id === teamId ? { ...t, spent: t.spent + diff } : t));
+    showToast(`${player.n}: prezzo aggiornato a ${newPrice}cr`, "success");
+  }
+
+  // Esporta tutte le rose in un unico file Excel: un foglio riepilogo + un foglio per squadra,
+  // ordinato per ruolo (P/D/C/A), con budget speso/residuo in evidenza.
+  function exportRosters() {
+    const wb = XLSX.utils.book_new();
+    const ROLE_LABEL = { P: "Portieri", D: "Difensori", C: "Centrocampisti", A: "Attaccanti" };
+
+    // --- Foglio Riepilogo ---
+    const riepilogoRows = [
+      ["Riepilogo Asta — Fantacalcio 2026/27"],
+      [],
+      ["Squadra", "Budget iniziale", "Speso", "Residuo", "Giocatori presi", "P", "D", "C", "A"],
+    ];
+    teams.forEach((t) => {
+      riepilogoRows.push([
+        t.name, t.budget, t.spent, t.budget - t.spent,
+        ROLE_SEQUENCE.reduce((a, r) => a + t.roster[r].length, 0),
+        t.roster.P.length, t.roster.D.length, t.roster.C.length, t.roster.A.length,
+      ]);
+    });
+    const wsRiepilogo = XLSX.utils.aoa_to_sheet(riepilogoRows);
+    wsRiepilogo["!cols"] = [{ wch: 22 }, { wch: 14 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 5 }, { wch: 5 }, { wch: 5 }, { wch: 5 }];
+    wsRiepilogo["!merges"] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 8 } }];
+    XLSX.utils.book_append_sheet(wb, wsRiepilogo, "Riepilogo");
+
+    // --- Un foglio per squadra ---
+    teams.forEach((t) => {
+      const rows = [
+        [t.name],
+        [`Budget: ${t.budget}cr   Speso: ${t.spent}cr   Residuo: ${t.budget - t.spent}cr`],
+        [],
+      ];
+      ROLE_SEQUENCE.forEach((r) => {
+        rows.push([`${ROLE_LABEL[r]} (${t.roster[r].length}/${ROLE_SLOTS[r]})`]);
+        rows.push(["Giocatore", "Squadra", "Prezzo pagato"]);
+        const playersInRole = players.filter((p) => p.owner === t.id && p.r === r);
+        if (playersInRole.length === 0) {
+          rows.push(["—", "—", "—"]);
+        } else {
+          playersInRole.forEach((p) => rows.push([p.n, p.s, p.paid]));
+        }
+        rows.push([]);
+      });
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+      ws["!cols"] = [{ wch: 22 }, { wch: 16 }, { wch: 14 }];
+      // Unisco le celle dei titoli (nome squadra, riga budget, e ogni intestazione di ruolo)
+      const merges = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 2 } },
+      ];
+      let rIdx = 3;
+      ROLE_SEQUENCE.forEach((r) => {
+        merges.push({ s: { r: rIdx, c: 0 }, e: { r: rIdx, c: 2 } });
+        const playersInRole = players.filter((p) => p.owner === t.id && p.r === r);
+        const nRows = Math.max(1, playersInRole.length);
+        rIdx += 2 + nRows + 1; // titolo + header + righe + riga vuota
+      });
+      ws["!merges"] = merges;
+      const safeName = t.name.replace(/[\\/*?:[\]]/g, "").slice(0, 31) || `Squadra ${t.id + 1}`;
+      XLSX.utils.book_append_sheet(wb, ws, safeName);
+    });
+
+    XLSX.writeFile(wb, "Rose_Asta_Fantacalcio_2026_27.xlsx");
+    showToast("Rose esportate in Excel", "success");
+  }
+
+  function changeRole(role) {
+    setCurrentRole(role);
+    setNeedsStartLetter(true);
+    setRoleOrder([]);
+    setRoleIdx(0);
+  }
+
+  // ================= RENDER =================
+
+  if (view === "setup") {
+    return (
+      <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text }} className="font-sans">
+        <div className="max-w-xl mx-auto px-5 py-10">
+          <div className="flex items-center gap-2 mb-1">
+            <Trophy size={22} color={COLORS.gold} />
+            <span className="text-xs tracking-widest uppercase" style={{ color: COLORS.muted }}>Asta Live</span>
+          </div>
+          <h1 className="text-3xl font-black mb-1" style={{ letterSpacing: "-0.02em" }}>Fantacalcio 2026/27</h1>
+          <p className="text-sm mb-8" style={{ color: COLORS.muted }}>8 squadre · 800 crediti · Classic · 3P 8D 8C 6A</p>
+          <div className="space-y-2 mb-8">
+            {teams.map((t, i) => (
+              <div key={t.id} className="flex items-center gap-3 rounded-lg px-3 py-2" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ background: i === 0 ? COLORS.gold : COLORS.surface2, color: i === 0 ? "#1A1200" : COLORS.muted }}>{i + 1}</span>
+                <input value={t.name} onChange={(e) => setTeams((prev) => prev.map((tm, idx) => (idx === i ? { ...tm, name: e.target.value } : tm)))} className="bg-transparent outline-none flex-1 text-sm" style={{ color: COLORS.text }} />
+                {i === 0 && <span className="text-[10px] uppercase tracking-wide px-2 py-0.5 rounded" style={{ background: "rgba(232,163,61,0.15)", color: COLORS.gold }}>tu</span>}
+              </div>
+            ))}
+          </div>
+          <button onClick={() => setView("auction")} className="w-full py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-2" style={{ background: COLORS.green, color: "#08170D" }}>
+            Inizia asta <ChevronRight size={16} />
+          </button>
+          {teams.some((t) => t.spent > 0) && (
+            <button onClick={() => setView("auction")} className="w-full mt-3 py-2 text-xs" style={{ color: COLORS.muted }}>
+              Riprendi asta in corso ({players.filter((p) => p.status === "assigned").length} gia' assegnati)
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (view === "rosters") {
+    return (
+      <Shell view={view} setView={setView}>
+        <div className="max-w-3xl mx-auto px-4 pt-4">
+          <button onClick={exportRosters} className="w-full mb-2 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2" style={{ background: COLORS.gold, color: "#1A1200" }}>
+            <Download size={15} /> Esporta tutte le rose in Excel
+          </button>
+          <label className="w-full mb-4 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 cursor-pointer" style={{ background: COLORS.surface2, color: COLORS.text, border: `1px solid ${COLORS.border}` }}>
+            <RefreshCw size={15} /> Ricarica listone aggiornato
+            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { if (e.target.files[0]) parseListoneFile(e.target.files[0]); e.target.value = ""; }} />
+          </label>
+        </div>
+        <BudgetTrackingPanel tracking={budgetTracking} myTeam={myTeam} />
+        <div className="max-w-3xl mx-auto px-4 pb-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {teams.map((t) => (
+            <div key={t.id} className="rounded-xl p-4" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+              <div className="flex justify-between items-baseline mb-2">
+                <h3 className="font-bold text-sm">{t.name}</h3>
+                <span className="font-mono text-sm" style={{ color: t.budget - t.spent < 50 ? COLORS.red : COLORS.gold }}>{t.budget - t.spent}cr</span>
+              </div>
+              <div className="w-full h-1.5 rounded-full mb-3" style={{ background: COLORS.surface2 }}>
+                <div className="h-1.5 rounded-full" style={{ width: `${Math.min(100, (t.spent / t.budget) * 100)}%`, background: COLORS.green }} />
+              </div>
+              {ROLE_SEQUENCE.map((r) => (
+                <div key={r} className="mb-1.5">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-xs font-bold w-4 flex-shrink-0" style={{ color: ROLE_INFO[r].color }}>{r}</span>
+                    <span className="text-[10px]" style={{ color: COLORS.mutedDark }}>{t.roster[r].length}/{ROLE_SLOTS[r]}</span>
+                  </div>
+                  {t.roster[r].length > 0 && (
+                    <div className="flex flex-wrap gap-1 pl-5">
+                      {players.filter((p) => p.owner === t.id && p.r === r).map((p, i) => (
+                        <button
+                          key={i}
+                          onClick={() => { setEditingAssignment(p); setEditPriceValue(String(p.paid || 1)); }}
+                          className="text-[11px] px-2 py-0.5 rounded-full flex items-center gap-1"
+                          style={{ background: COLORS.surface2, color: COLORS.text, border: `1px solid ${COLORS.border}` }}
+                        >
+                          {p.n} <span style={{ color: COLORS.gold }}>{p.paid}cr</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+        {editingAssignment && (
+          <EditAssignmentModal
+            player={editingAssignment}
+            teamName={teams[editingAssignment.owner]?.name}
+            priceValue={editPriceValue}
+            setPriceValue={setEditPriceValue}
+            onClose={() => setEditingAssignment(null)}
+            onRemove={() => { removeAssignment(editingAssignment); setEditingAssignment(null); }}
+            onSavePrice={() => {
+              const np = parseInt(editPriceValue, 10);
+              if (!np || np < 1) { showToast("Prezzo non valido", "warn"); return; }
+              editAssignmentPrice(editingAssignment, np);
+              setEditingAssignment(null);
+            }}
+          />
+        )}
+        {listoneReport && (
+          <ListoneReportModal report={listoneReport} onClose={() => setListoneReport(null)} onApply={applyListoneUpdates} />
+        )}
+      </Shell>
+
+    );
+  }
+
+  // ---- punto 5: tab formazioni con infortuni e rigoristi ----
+  if (view === "formazioni") {
+    const teamsList = Object.keys(FORMAZIONI_DATA).sort((a, b) => a.localeCompare(b, "it"));
+    const activeTeam = formTeam || teamsList[0];
+    const f = FORMAZIONI_DATA[activeTeam];
+    const squad = PLAYERS_DATA.filter((p) => p.s === activeTeam).sort((a, b) => {
+      const ro = ROLE_SEQUENCE.indexOf(a.r) - ROLE_SEQUENCE.indexOf(b.r);
+      if (ro !== 0) return ro;
+      return tierRank(a.t) - tierRank(b.t);
+    });
+    const findPlayer = (name) => PLAYERS_DATA.find((p) => p.n === name);
+
+    return (
+      <Shell view={view} setView={setView}>
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3" style={{ scrollbarWidth: "none" }}>
+            {teamsList.map((tm) => (
+              <button key={tm} onClick={() => setFormTeam(tm)} className="flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold"
+                style={{ background: activeTeam === tm ? COLORS.gold : COLORS.surface, color: activeTeam === tm ? "#1A1200" : COLORS.muted, border: `1px solid ${activeTeam === tm ? COLORS.gold : COLORS.border}` }}>
+                {tm}
+              </button>
+            ))}
+          </div>
+
+          {f && (
+            <>
+              {/* header: allenatore + modulo */}
+              <div className="flex items-center justify-between mb-3">
+                <div>
+                  <h2 className="text-xl font-black">{activeTeam}</h2>
+                  <p className="text-xs" style={{ color: COLORS.muted }}>All. {f.allenatore}</p>
+                </div>
+                <div className="text-right">
+                  <span className="font-mono text-2xl font-black" style={{ color: COLORS.gold }}>{f.modulo}</span>
+                  {f.modulo_incerto && (
+                    <p className="text-[9px] font-bold" style={{ color: COLORS.red }}>MODULO INCERTO</p>
+                  )}
+                </div>
+              </div>
+              {f.modulo_nota && (
+                <div className="mb-3 px-3 py-2 rounded-lg text-[11px]" style={{ background: f.modulo_incerto ? "rgba(220,80,80,0.10)" : COLORS.surface2, border: `1px solid ${f.modulo_incerto ? COLORS.redDim : COLORS.border}`, color: f.modulo_incerto ? COLORS.red : COLORS.muted }}>
+                  {f.modulo_nota}
+                </div>
+              )}
+
+              {/* campo */}
+              <div className="rounded-2xl p-4 mb-4" style={{ background: "linear-gradient(180deg, #1B3A28 0%, #16301F 100%)", border: `1px solid ${COLORS.border}` }}>
+                <div className="flex flex-col gap-3">
+                  {[...f.linee].reverse().map((linea, li) => (
+                    <div key={li} className="flex justify-center gap-2 flex-wrap">
+                      {/* Le fonti elencano i giocatori destra->sinistra (es. "Zortea, Heggem, Vitik, Miranda"
+                          = terzino DX, centrali, terzino SX). Attaccando verso l'alto dello schermo, il lato
+                          destro del giocatore va disegnato a destra: quindi inverto l'ordine per il rendering. */}
+                      {[...linea].reverse().map((nome, ni) => {
+                        const pl = findPlayer(nome);
+                        return (
+                          <button
+                            key={ni}
+                            onClick={() => pl && setDetailPlayer(pl)}
+                            className="flex flex-col items-center gap-1 px-1"
+                            style={{ minWidth: "58px" }}
+                          >
+                            <span
+                              className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-black"
+                              style={{
+                                background: pl ? (pl.ti === "Infortunato" ? "rgba(220,80,80,0.85)" : "rgba(255,255,255,0.95)") : "rgba(255,255,255,0.3)",
+                                color: pl ? (pl.ti === "Infortunato" ? "#fff" : "#16301F") : "#fff",
+                                border: pl && pl.t === "Top" ? `2px solid ${COLORS.gold}` : "2px solid transparent",
+                              }}
+                            >
+                              {pl ? pl.r : "?"}
+                            </span>
+                            <span className="text-[9px] font-bold text-center leading-tight" style={{ color: "#fff" }}>{nome}</span>
+                            {pl && pl.rig && <span className="text-[8px]" style={{ color: COLORS.gold }}>{pl.rig}</span>}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ballottaggi */}
+              {f.ballottaggi && f.ballottaggi.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-xs font-bold uppercase tracking-wide mb-2 flex items-center gap-1.5" style={{ color: COLORS.gold }}>
+                    <AlertTriangle size={13} /> Ballottaggi
+                  </h3>
+                  <div className="space-y-1.5">
+                    {f.ballottaggi.map((b, i) => (
+                      <div key={i} className="rounded-lg px-3 py-2" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                        <div className="flex items-center gap-2 text-sm font-semibold flex-wrap">
+                          <span>{b[0]}</span>
+                          {b[1] !== "—" && (
+                            <>
+                              <span style={{ color: COLORS.mutedDark }}>vs</span>
+                              <span style={{ color: COLORS.muted }}>{b[1]}</span>
+                            </>
+                          )}
+                        </div>
+                        <p className="text-[11px] mt-0.5" style={{ color: COLORS.muted }}>{b[2]}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* rosa completa */}
+          <h3 className="text-xs font-bold uppercase tracking-wide mb-2" style={{ color: COLORS.muted }}>Rosa completa</h3>
+          <div className="space-y-1.5">
+            {squad.map((p, i) => (
+              <button key={i} onClick={() => setDetailPlayer(p)} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left" style={{ background: COLORS.surface, border: `1px solid ${p.ti === "Infortunato" ? COLORS.redDim : COLORS.border}` }}>
+                <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: `${ROLE_INFO[p.r].color}22`, color: ROLE_INFO[p.r].color }}>{p.r}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-semibold truncate">{p.n}</span>
+                    {p.rig && <span className="text-[9px] px-1.5 py-0.5 rounded font-bold flex-shrink-0" style={{ background: "rgba(232,163,61,0.15)", color: COLORS.gold }}>{p.rig}</span>}
+                  </div>
+                  <span className="text-[11px]" style={{ color: p.ti === "Infortunato" ? COLORS.red : COLORS.muted }}>
+                    {p.ti === "Infortunato" ? "INFORTUNATO — " : ""}{p.note.slice(0, 70)}
+                  </span>
+                </div>
+                <span className="text-[10px] font-bold flex-shrink-0" style={{ color: TIER_STYLE[p.t].color }}>{p.t}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        {detailPlayer && <PlayerDetailModal player={detailPlayer} onClose={() => setDetailPlayer(null)} myTeam={myTeam} allTeams={teams} allPlayers={players} />}
+      </Shell>
+    );
+  }
+
+  // ---- punto 6: tab listone completo ----
+  if (view === "listone") {
+    const filtered = PLAYERS_DATA.filter((p) => {
+      if (listoneRole !== "ALL" && p.r !== listoneRole) return false;
+      if (listoneTier !== "ALL" && p.t !== listoneTier) return false;
+      if (listoneSearch.trim() && !p.n.toLowerCase().includes(listoneSearch.toLowerCase()) && !p.s.toLowerCase().includes(listoneSearch.toLowerCase())) return false;
+      return true;
+    }).sort((a, b) => tierRank(a.t) - tierRank(b.t) || b.pi - a.pi);
+
+    return (
+      <Shell view={view} setView={setView}>
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <div className="flex items-center gap-2 rounded-lg px-3 py-2 mb-2" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+            <Search size={14} color={COLORS.muted} />
+            <input value={listoneSearch} onChange={(e) => { setListoneSearch(e.target.value); setListoneLimit(40); }} placeholder="Cerca nome o squadra..." className="bg-transparent outline-none flex-1 text-xs" style={{ color: COLORS.text }} />
+          </div>
+          <div className="flex gap-1.5 mb-1.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {["ALL", "P", "D", "C", "A"].map((r) => (
+              <FilterChip key={r} active={listoneRole === r} label={r === "ALL" ? "Tutti" : ROLE_INFO[r].label} onClick={() => { setListoneRole(r); setListoneLimit(40); }} />
+            ))}
+          </div>
+          <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {["ALL", ...TIER_ORDER].map((t) => (
+              <FilterChip key={t} active={listoneTier === t} label={t === "ALL" ? "Ogni fascia" : t} color={t !== "ALL" ? TIER_STYLE[t].color : undefined} onClick={() => { setListoneTier(t); setListoneLimit(40); }} />
+            ))}
+          </div>
+          <p className="text-[11px] mb-2" style={{ color: COLORS.muted }}>{filtered.length} giocatori</p>
+          <div className="space-y-1.5">
+            {filtered.slice(0, listoneLimit).map((p, i) => (
+              <button key={i} onClick={() => setDetailPlayer(p)} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+                <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: `${ROLE_INFO[p.r].color}22`, color: ROLE_INFO[p.r].color }}>{p.r}</span>
+                <div className="flex-1 min-w-0">
+                  <span className="text-sm font-semibold">{p.n}</span>
+                  <span className="text-[11px] ml-1.5" style={{ color: COLORS.muted }}>{p.s}</span>
+                </div>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ color: TIER_STYLE[p.t].color, background: TIER_STYLE[p.t].bg }}>{p.t}</span>
+                <span className="font-mono text-xs w-8 text-right flex-shrink-0" style={{ color: COLORS.gold }}>{p.pi}</span>
+              </button>
+            ))}
+          </div>
+          {filtered.length > listoneLimit && (
+            <button onClick={() => setListoneLimit((n) => n + 60)} className="w-full mt-3 py-2 rounded-lg text-xs font-semibold" style={{ background: COLORS.surface2, color: COLORS.muted, border: `1px solid ${COLORS.border}` }}>
+              Mostra altri {Math.min(60, filtered.length - listoneLimit)}
+            </button>
+          )}
+        </div>
+        {detailPlayer && <PlayerDetailModal player={detailPlayer} onClose={() => setDetailPlayer(null)} myTeam={myTeam} allTeams={teams} allPlayers={players} />}
+      </Shell>
+    );
+  }
+
+  // ---- tab Osservati: giocatori con prezzo medio da altre aste reali, normalizzato su 800cr ----
+  if (view === "osservati") {
+    const osservati = players
+      .filter((p) => p.altreAsteN >= 1 && (osservatiRole === "ALL" || p.r === osservatiRole))
+      .sort((a, b) => b.altreAste - a.altreAste);
+
+    return (
+      <Shell view={view} setView={setView}>
+        <div className="max-w-2xl mx-auto px-4 py-3">
+          <p className="text-xs mb-3 leading-relaxed" style={{ color: COLORS.muted }}>
+            Prezzo medio realmente pagato in altre aste osservate, normalizzato su budget 800cr. Ordinato dal piu' alto. Confrontalo col tuo Fair Value: quando diverge molto, il mercato reale lo valuta diversamente dal modello.
+          </p>
+          <div className="flex gap-1.5 mb-3 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {["ALL", "P", "D", "C", "A"].map((r) => (
+              <FilterChip key={r} active={osservatiRole === r} label={r === "ALL" ? "Tutti" : ROLE_INFO[r].label} onClick={() => { setOsservatiRole(r); setOsservatiLimit(40); }} />
+            ))}
+          </div>
+          <p className="text-[11px] mb-2" style={{ color: COLORS.muted }}>{osservati.length} giocatori con almeno 1 osservazione</p>
+          <div className="space-y-1.5">
+            {osservati.slice(0, osservatiLimit).map((p, i) => {
+              const rapporto = p.pi > 0 ? p.altreAste / p.pi : 1;
+              const diverge = p.altreAsteN >= 2 && rapporto >= 1.4;
+              return (
+                <button key={i} onClick={() => setDetailPlayer(p)} className="w-full flex items-center gap-2.5 rounded-lg px-3 py-2 text-left" style={{ background: COLORS.surface, border: `1px solid ${diverge ? COLORS.redDim : COLORS.border}` }}>
+                  <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black flex-shrink-0" style={{ background: `${ROLE_INFO[p.r].color}22`, color: ROLE_INFO[p.r].color }}>{p.r}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm font-semibold truncate">{p.n}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-bold flex-shrink-0" style={{ background: COLORS.surface2, color: COLORS.mutedDark }}>{p.altreAsteN} oss.</span>
+                    </div>
+                    <span className="text-[11px]" style={{ color: COLORS.muted }}>
+                      {p.s} · Fair Value {p.pi}cr{diverge ? ` · ${rapporto.toFixed(1)}x` : ""}
+                    </span>
+                  </div>
+                  <span className="font-mono text-sm font-bold flex-shrink-0" style={{ color: diverge ? COLORS.red : COLORS.gold }}>{Math.round(p.altreAste)}cr</span>
+                </button>
+              );
+            })}
+          </div>
+          {osservati.length > osservatiLimit && (
+            <button onClick={() => setOsservatiLimit((n) => n + 60)} className="w-full mt-3 py-2 rounded-lg text-xs font-semibold" style={{ background: COLORS.surface2, color: COLORS.muted, border: `1px solid ${COLORS.border}` }}>
+              Mostra altri {Math.min(60, osservati.length - osservatiLimit)}
+            </button>
+          )}
+        </div>
+        {detailPlayer && <PlayerDetailModal player={detailPlayer} onClose={() => setDetailPlayer(null)} myTeam={myTeam} allTeams={teams} allPlayers={players} />}
+      </Shell>
+    );
+  }
+
+  // ---- auction view ----
+  return (
+    <Shell view={view} setView={setView}>
+      <div className="max-w-2xl mx-auto px-4 pt-3 flex gap-2">
+        {ROLE_SEQUENCE.map((r) => {
+          const done = players.filter((p) => p.r === r && p.status !== "assigned").length === 0;
+          return (
+            <button key={r} onClick={() => changeRole(r)} className="flex-1 py-2 rounded-lg text-xs font-bold flex flex-col items-center gap-0.5"
+              style={{ background: currentRole === r ? ROLE_INFO[r].color : COLORS.surface, color: currentRole === r ? "#0A0A0A" : done ? COLORS.mutedDark : COLORS.muted, border: `1px solid ${currentRole === r ? ROLE_INFO[r].color : COLORS.border}`, opacity: done && currentRole !== r ? 0.5 : 1 }}>
+              <span>{ROLE_INFO[r].label}</span>
+              <span className="font-mono text-[10px] opacity-80">{myTeam.roster[r].length}/{ROLE_SLOTS[r]}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <ScarcityPanel scarcity={scarcityByRole} currentRole={currentRole} onSelectRole={changeRole} />
+
+      <div className="max-w-2xl mx-auto px-4 mt-3 relative">
+        <div className="flex items-center gap-2 rounded-lg px-3 py-2" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+          <Search size={14} color={COLORS.muted} />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Cerca un giocatore..." className="bg-transparent outline-none flex-1 text-xs" style={{ color: COLORS.text }} />
+        </div>
+        {searchResults.length > 0 && (
+          <div className="absolute left-4 right-4 mt-1 rounded-lg overflow-hidden z-10" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}` }}>
+            {searchResults.map((p, i) => (
+              <button key={i} onClick={() => { setDetailPlayer(p); setSearch(""); }} className="w-full text-left px-3 py-2 text-xs flex justify-between" style={{ borderBottom: `1px solid ${COLORS.border}`, color: COLORS.text }}>
+                <span>{p.n} <span style={{ color: COLORS.muted }}>({p.s})</span></span>
+                <span style={{ color: TIER_STYLE[p.t].color }}>{p.t}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {needsStartLetter ? (
+        <div className="max-w-2xl mx-auto px-4 mt-8">
+          <div className="rounded-xl p-5 text-center" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+            <p className="text-sm mb-3" style={{ color: COLORS.muted }}>Turno <b style={{ color: COLORS.text }}>{ROLE_INFO[currentRole].label}</b> — da quale lettera si parte?</p>
+            <div className="flex gap-2 justify-center">
+              <input value={startLetterInput} onChange={(e) => setStartLetterInput(e.target.value)} placeholder="es. M" maxLength={12} className="w-40 text-center py-2 rounded-lg outline-none text-sm" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}`, color: COLORS.text }} />
+              <button onClick={() => startRolePhase(startLetterInput)} className="px-4 py-2 rounded-lg text-sm font-bold" style={{ background: COLORS.green, color: "#08170D" }}>Conferma</button>
+            </div>
+            <button onClick={() => startRolePhase("")} className="text-xs mt-3" style={{ color: COLORS.muted }}>(parti direttamente da A)</button>
+            {passatiInRole.length > 0 && (
+              <button onClick={startNewGiro} className="text-xs mt-3 block mx-auto" style={{ color: COLORS.gold }}>oppure riprendi i {passatiInRole.length} saltati del giro precedente</button>
+            )}
+          </div>
+        </div>
+      ) : !currentPlayer ? (
+        <div className="max-w-2xl mx-auto px-4 mt-8 text-center">
+          <p style={{ color: COLORS.muted }}>Nessun altro giocatore disponibile in questo giro.</p>
+          {passatiInRole.length > 0 ? (
+            <button onClick={startNewGiro} className="mt-4 px-5 py-2 rounded-lg text-sm font-bold" style={{ background: COLORS.gold, color: "#1A1200" }}>
+              Nuovo giro ({passatiInRole.length} saltati)
+            </button>
+          ) : (
+            <button onClick={() => { const next = ROLE_SEQUENCE[ROLE_SEQUENCE.indexOf(currentRole) + 1]; if (next) changeRole(next); else setView("rosters"); }} className="mt-4 px-5 py-2 rounded-lg text-sm font-bold" style={{ background: COLORS.gold, color: "#1A1200" }}>
+              {ROLE_SEQUENCE.indexOf(currentRole) < 3 ? "Passa al ruolo successivo" : "Vedi rose finali"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <div className="max-w-2xl mx-auto px-4 mt-4">
+          <PlayerCard player={currentPlayer} myTeam={myTeam} allTeams={teams} allPlayers={players} prezzoAttuale={parseInt(assignPrice, 10) || 0} />
+
+          <div className="mt-3 rounded-xl p-4" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+            <div className="flex gap-2 mb-1.5">
+              <select value={assignTeam} onChange={(e) => setAssignTeam(parseInt(e.target.value, 10))} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}`, color: COLORS.text }}>
+                {teams.map((t, i) => <option key={t.id} value={i}>{t.name} ({t.budget - t.spent}cr)</option>)}
+              </select>
+              <input type="number" value={assignPrice} onChange={(e) => setAssignPrice(e.target.value)} placeholder="Prezzo" max={assignCap} className="w-24 rounded-lg px-3 py-2 text-sm outline-none font-mono" style={{ background: COLORS.surface2, border: `1px solid ${parseInt(assignPrice, 10) > assignCap ? COLORS.red : COLORS.border}`, color: COLORS.text }} />
+            </div>
+            {/* Tetto massimo: badge grande e a alto contrasto, non solo una riga di testo piccolo */}
+            <div
+              className="flex items-center justify-between rounded-lg px-3 py-2 mb-3"
+              style={{
+                background: parseInt(assignPrice, 10) > assignCap ? "rgba(220,80,80,0.16)" : "rgba(232,163,61,0.12)",
+                border: `1.5px solid ${parseInt(assignPrice, 10) > assignCap ? COLORS.red : COLORS.gold}`,
+              }}
+            >
+              <span className="text-xs font-semibold" style={{ color: parseInt(assignPrice, 10) > assignCap ? COLORS.red : COLORS.text }}>
+                Max per {teams[assignTeam].name}
+              </span>
+              <span className="font-mono font-black text-lg" style={{ color: parseInt(assignPrice, 10) > assignCap ? COLORS.red : COLORS.gold }}>
+                {assignCap}cr
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={prevPlayer} className="px-4 py-2.5 rounded-lg text-sm font-bold" style={{ background: COLORS.surface2, color: COLORS.muted, border: `1px solid ${COLORS.border}` }}><ArrowLeft size={15} /></button>
+              <button onClick={assignPlayer} className="flex-1 py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-1.5" style={{ background: COLORS.green, color: "#08170D" }}><Check size={15} /> Assegna</button>
+              <button onClick={markUnsold} className="px-4 py-2.5 rounded-lg text-sm font-bold flex items-center gap-1.5" style={{ background: COLORS.surface2, color: COLORS.muted, border: `1px solid ${COLORS.border}` }}><X size={15} /> Nessuno</button>
+              <button onClick={nextPlayer} className="px-4 py-2.5 rounded-lg text-sm font-bold" style={{ background: COLORS.surface2, color: COLORS.muted, border: `1px solid ${COLORS.border}` }}><SkipForward size={15} /></button>
+            </div>
+          </div>
+
+          <RecommendationsPanel
+            rec={recommendations} budgetInfo={budgetInfo} role={currentRole} show={showRecs} setShow={setShowRecs}
+            expanded={recExpanded} setExpanded={setRecExpanded}
+            tierFilter={recTierFilter} setTierFilter={setRecTierFilter}
+            roleScope={recRoleScope} setRoleScope={setRecRoleScope}
+            onOpenDetail={setDetailPlayer}
+          />
+        </div>
+      )}
+
+      {toast && <Toast toast={toast} />}
+      {detailPlayer && <PlayerDetailModal player={detailPlayer} onClose={() => setDetailPlayer(null)} myTeam={myTeam} allTeams={teams} allPlayers={players} />}
+    </Shell>
+  );
+}
+
+function Shell({ view, setView, children }) {
+  return (
+    <div style={{ background: COLORS.bg, minHeight: "100vh", color: COLORS.text }} className="font-sans pb-24">
+      <div className="sticky top-0 z-20 backdrop-blur" style={{ background: "rgba(16,21,26,0.92)", borderBottom: `1px solid ${COLORS.border}` }}>
+        <div className="max-w-2xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-1.5">
+            <Trophy size={16} color={COLORS.gold} />
+            <span className="text-xs font-bold tracking-wide">ASTA LIVE</span>
+          </div>
+          <div className="flex gap-0.5 overflow-x-auto" style={{ scrollbarWidth: "none" }}>
+            {[["auction", "Asta"], ["rosters", "Rose"], ["formazioni", "Formazioni"], ["listone", "Listone"], ["osservati", "Osservati"]].map(([k, label]) => (
+              <button key={k} onClick={() => setView(k)} className="text-xs px-2.5 py-1.5 rounded-md font-semibold flex-shrink-0" style={{ background: view === k ? COLORS.surface2 : "transparent", color: view === k ? COLORS.text : COLORS.muted }}>{label}</button>
+            ))}
+          </div>
+        </div>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function FilterChip({ active, label, color, onClick }) {
+  return (
+    <button onClick={onClick} className="flex-shrink-0 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: active ? (color || COLORS.gold) : COLORS.surface, color: active ? "#0A0A0A" : (color || COLORS.muted), border: `1px solid ${active ? (color || COLORS.gold) : COLORS.border}` }}>
+      {label}
+    </button>
+  );
+}
+
+function PlayerCard({ player, myTeam, allTeams, allPlayers, prezzoAttuale }) {
+  const ts = TIER_STYLE[player.t];
+  const roleColor = ROLE_INFO[player.r].color;
+  const sitMax = myTeam && allTeams && allPlayers ? situationalMax(player, myTeam, allTeams, allPlayers) : null;
+  // prezzo attuale sul tavolo: se non lo stiamo digitando, uso il prezzo di mercato come riferimento
+  const prezzoTavolo = prezzoAttuale != null && prezzoAttuale > 0 ? prezzoAttuale : (player.mp || player.pi);
+  const decisione = sitMax ? decisioneAsta(player, prezzoTavolo, sitMax) : null;
+  return (
+    <div className="rounded-2xl overflow-hidden relative" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+      <div className="absolute top-0 right-0 px-3 py-1 text-[10px] font-black tracking-widest" style={{ background: ts.color, color: "#0A0A0A", borderBottomLeftRadius: "10px" }}>{player.t.toUpperCase()}</div>
+      <div className="p-5">
+        <div className="flex items-center gap-3 mb-1">
+          <span className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0" style={{ background: `${roleColor}22`, color: roleColor, border: `1.5px solid ${roleColor}` }}>{player.r}</span>
+          <div>
+            <h2 className="text-2xl font-black leading-none" style={{ letterSpacing: "-0.01em" }}>{player.n}</h2>
+            <p className="text-xs mt-0.5" style={{ color: COLORS.muted }}>{player.s} {player.rig && <span style={{ color: COLORS.gold }}> · {player.rig}</span>}</p>
+          </div>
+        </div>
+        {player.post && (
+          <div className="mt-2 px-3 py-2 rounded-lg" style={{ background: "rgba(111,160,201,0.10)", border: "1px solid #6FA0C955" }}>
+            <span className="text-[9px] uppercase tracking-wide font-bold" style={{ color: "#6FA0C9" }}>Posizione reale in campo</span>
+            <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{player.post}</p>
+          </div>
+        )}
+        {player.sor && (
+          <div className="flex items-center gap-1.5 mt-2 mb-1">
+            <Star size={12} color={COLORS.gold} fill={COLORS.gold} />
+            <span className="text-[11px] font-bold" style={{ color: COLORS.gold }}>POSSIBILE SORPRESA</span>
+          </div>
+        )}
+
+        {/* 4 numeri distinti: Fair Value (modello puro) · Market (quanto si paga davvero)
+            · Target (margine trattativa) · Max ora (calcolato dal contesto d'asta) */}
+        <div className="grid grid-cols-4 gap-1.5 mt-4">
+          <PriceBox label="Fair value" value={player.pi} sub="cr" />
+          <PriceBox label="Mercato" value={player.mp} sub="cr" highlight />
+          <PriceBox label="Target" value={player.tp} sub="cr" />
+          <PriceBox label="Max ora" value={sitMax ? sitMax.max : "—"} sub="cr" tone="live" />
+        </div>
+        {sitMax && decisione && (
+          <>
+            {/* DECISIONE: il risultato del motore, grande e leggibile a colpo d'occhio */}
+            <div className="mt-3 rounded-xl px-4 py-3 flex items-center justify-between"
+                 style={{ background: `${decisione.color}1F`, border: `2px solid ${decisione.color}` }}>
+              <div>
+                <div className="text-xl font-black tracking-wide" style={{ color: decisione.color }}>{decisione.label}</div>
+                <div className="text-[11px] mt-0.5" style={{ color: COLORS.muted }}>{decisione.hint}</div>
+              </div>
+              <div className="text-right flex-shrink-0 ml-3">
+                <div className="text-[9px] uppercase tracking-wide" style={{ color: COLORS.muted }}>molla oltre</div>
+                <div className="font-mono font-black text-lg" style={{ color: COLORS.red }}>{sitMax.molla}cr</div>
+              </div>
+            </div>
+            {/* Come si arriva al Max: ogni voce in crediti, verificabile a occhio */}
+            <div className="mt-2 rounded-lg px-3 py-2" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}` }}>
+              <div className="flex items-center justify-between text-[11px] pb-1 mb-1" style={{ borderBottom: `1px solid ${COLORS.border}` }}>
+                <span style={{ color: COLORS.muted }}>Max normale</span>
+                <span className="font-mono" style={{ color: COLORS.text }}>{sitMax.maxNormal}cr</span>
+              </div>
+              {sitMax.breakdown.map((b, i) => (
+                <div key={i} className="flex items-center justify-between text-[11px] py-0.5">
+                  <span style={{ color: COLORS.muted }}>{b.label} <span style={{ color: COLORS.mutedDark }}>· {b.detail}</span></span>
+                  <span className="font-mono font-bold flex-shrink-0 ml-2" style={{ color: b.cr > 0 ? COLORS.gold : "#6FA0C9" }}>
+                    {b.cr > 0 ? "+" : ""}{b.cr}
+                  </span>
+                </div>
+              ))}
+              <div className="flex items-center justify-between text-xs pt-1 mt-1 font-bold" style={{ borderTop: `1px solid ${COLORS.border}` }}>
+                <span style={{ color: COLORS.text }}>Max situazionale</span>
+                <span className="font-mono" style={{ color: "#6FA0C9" }}>{sitMax.max}cr</span>
+              </div>
+            </div>
+            {sitMax.fattori.limitatoDalBudget && (
+              <p className="text-[10px] mt-1" style={{ color: COLORS.gold }}>Il tuo budget/slot residui limitano il massimo</p>
+            )}
+            {sitMax.fattori.limitatoDalCap && (
+              <p className="text-[10px] mt-1" style={{ color: COLORS.mutedDark }}>Tetto di sicurezza attivo (max 1.6x il prezzo di mercato)</p>
+            )}
+          </>
+        )}
+        {player.altreAsteN >= 2 && (() => {
+          const rapporto = player.altreAste / player.pi;
+          const diverge = rapporto >= 1.4;
+          return (
+            <div className="mt-2 px-3 py-2 rounded-lg" style={{ background: diverge ? "rgba(220,80,80,0.10)" : COLORS.surface2, border: `1px solid ${diverge ? COLORS.redDim : COLORS.border}` }}>
+              <div className="flex items-center justify-between">
+                <span className="text-[9px] uppercase tracking-wide font-bold" style={{ color: diverge ? COLORS.red : COLORS.muted }}>Prezzo medio altre aste</span>
+                <span className="font-mono font-bold text-sm" style={{ color: diverge ? COLORS.red : COLORS.text }}>{Math.round(player.altreAste)}cr</span>
+              </div>
+              <p className="text-[10px] mt-0.5" style={{ color: COLORS.mutedDark }}>
+                Media di {player.altreAsteN} aste osservate (normalizzato su 800cr){diverge ? ` — ${rapporto.toFixed(1)}x il nostro Fair Value: il mercato reale lo valuta piu' alto` : ""}
+              </p>
+            </div>
+          );
+        })()}
+        {player.oss && (
+          <div className="mt-2 px-3 py-2 rounded-lg" style={{ background: "rgba(232,163,61,0.08)", border: "1px solid #E8A33D44" }}>
+            <span className="text-[9px] uppercase tracking-wide font-bold" style={{ color: COLORS.gold }}>Prezzo osservato nella tua lega (non e' il valore)</span>
+            <p className="text-xs mt-0.5" style={{ color: COLORS.text }}>{player.oss}</p>
+          </div>
+        )}
+
+
+        <div className="flex gap-2 mt-3 flex-wrap">
+          <Pill label={player.ti} />
+          <Pill label={`Rischio: ${player.ris}`} tone={player.ris === "Alto" ? "red" : player.ris === "Medio" ? "gold" : "green"} />
+        </div>
+        <div className="mt-3 px-3 py-2 rounded-lg text-xs font-bold text-center" style={{ background: player.dec === "EVITA" ? "rgba(220,80,80,0.14)" : player.dec.includes("RILANCIA") ? "rgba(61,170,92,0.14)" : player.dec.includes("SCONTO") ? "rgba(232,163,61,0.14)" : "rgba(139,150,160,0.10)", color: player.dec === "EVITA" ? COLORS.red : player.dec.includes("RILANCIA") ? COLORS.green : player.dec.includes("SCONTO") ? COLORS.gold : COLORS.muted }}>
+          {player.dec}
+        </div>
+        <p className="text-xs mt-3 leading-relaxed" style={{ color: COLORS.muted }}>{player.note}</p>
+        <p className="text-[10px] mt-2" style={{ color: COLORS.mutedDark }}>Prezzo di mercato osservato (base 500): {player.p5}cr · Fonte: {player.src === "REALE" ? "aste reali comparabili" : "stima da modello"}</p>
+      </div>
+    </div>
+  );
+}
+
+// punto 4: esplorazione di qualsiasi giocatore in un overlay, richiamabile da ovunque
+function PlayerDetailModal({ player, onClose, myTeam, allTeams, allPlayers }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex justify-end px-4 pt-3">
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: COLORS.surface2, color: COLORS.muted }}><X size={16} /></button>
+        </div>
+        <div className="px-4 pb-6">
+          <PlayerCard player={player} myTeam={myTeam} allTeams={allTeams} allPlayers={allPlayers} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Modifica un'assegnazione gia' fatta: cambia il prezzo pagato oppure annulla del tutto
+// l'assegnazione (il giocatore torna disponibile, il budget torna alla squadra).
+function EditAssignmentModal({ player, teamName, priceValue, setPriceValue, onClose, onRemove, onSavePrice }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-t-2xl sm:rounded-2xl overflow-hidden" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 pt-4">
+          <div>
+            <h3 className="text-lg font-black">{player.n}</h3>
+            <p className="text-xs" style={{ color: COLORS.muted }}>{teamName} · {player.paid}cr pagati</p>
+          </div>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: COLORS.surface2, color: COLORS.muted }}><X size={16} /></button>
+        </div>
+        <div className="p-4">
+          <p className="text-xs mb-1.5 font-semibold" style={{ color: COLORS.muted }}>Correggi prezzo pagato</p>
+          <div className="flex gap-2 mb-4">
+            <input type="number" value={priceValue} onChange={(e) => setPriceValue(e.target.value)} className="flex-1 rounded-lg px-3 py-2 text-sm outline-none font-mono" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}`, color: COLORS.text }} />
+            <button onClick={onSavePrice} className="px-4 py-2 rounded-lg text-sm font-bold" style={{ background: COLORS.green, color: "#08170D" }}>Salva</button>
+          </div>
+          <button onClick={onRemove} className="w-full py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-1.5" style={{ background: "rgba(220,80,80,0.14)", color: COLORS.red, border: `1px solid ${COLORS.redDim}` }}>
+            <X size={15} /> Annulla assegnazione (torna disponibile)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Riepilogo di quello che il listone ricaricato ha trovato: quanti aggiornamenti, quanti
+// invariati, e soprattutto i nomi NON presenti nel database (nuovi arrivi/trasferimenti che
+// vanno verificati a mano prima di dargli un prezzo, come fatto per Vicario). L'applicazione
+// e' un passo esplicito: caricare il file non cambia nulla finche' non premi "Applica".
+function ListoneReportModal({ report, onClose, onApply }) {
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }} onClick={onClose}>
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-4 pt-4">
+          <h3 className="text-lg font-black">Listone letto</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: COLORS.surface2, color: COLORS.muted }}><X size={16} /></button>
+        </div>
+        <div className="p-4">
+          <p className="text-xs mb-3" style={{ color: COLORS.muted }}>{report.totaleRighe} giocatori nel file.</p>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            <div className="rounded-lg px-3 py-2" style={{ background: "rgba(61,170,92,0.12)", border: `1px solid ${COLORS.greenDim}` }}>
+              <div className="text-2xl font-black" style={{ color: COLORS.green }}>{report.aggiornati}</div>
+              <div className="text-[11px]" style={{ color: COLORS.muted }}>da aggiornare (squadra/quotazione)</div>
+            </div>
+            <div className="rounded-lg px-3 py-2" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}` }}>
+              <div className="text-2xl font-black" style={{ color: COLORS.text }}>{report.invariati}</div>
+              <div className="text-[11px]" style={{ color: COLORS.muted }}>gia' allineati</div>
+            </div>
+          </div>
+
+          {report.aggiornati > 0 && (
+            <button onClick={onApply} className="w-full py-2.5 rounded-lg text-sm font-bold mb-4" style={{ background: COLORS.green, color: "#08170D" }}>
+              Applica {report.aggiornati} aggiornamenti
+            </button>
+          )}
+
+          {report.nuovi.length > 0 && (
+            <>
+              <p className="text-xs font-bold mb-1.5" style={{ color: COLORS.gold }}>
+                {report.nuovi.length} nomi nel file non presenti nel database
+              </p>
+              <p className="text-[11px] mb-2" style={{ color: COLORS.mutedDark }}>
+                Probabili nuovi arrivi/trasferimenti. Non aggiunti automaticamente: verificane il ruolo
+                tattico e la titolarita' prima di prezzarli (come fatto per Vicario).
+              </p>
+              <div className="space-y-1 max-h-48 overflow-y-auto">
+                {report.nuovi.map((n, i) => (
+                  <div key={i} className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg" style={{ background: COLORS.surface2 }}>
+                    <span>{n.nome} <span style={{ color: COLORS.muted }}>({n.squadra})</span></span>
+                    <span className="font-mono" style={{ color: COLORS.muted }}>{n.ruolo} · Qt.A {n.qta ?? "—"}</span>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+function FactorChip({ label, value, detail }) {
+  const spinge = value > 1.02, frena = value < 0.98;
+  const col = spinge ? COLORS.gold : frena ? "#6FA0C9" : COLORS.mutedDark;
+  return (
+    <div className="rounded-lg px-2 py-1.5" style={{ background: COLORS.surface2, border: `1px solid ${COLORS.border}` }}>
+      <div className="flex items-baseline justify-between">
+        <span className="text-[9px] uppercase tracking-wide" style={{ color: COLORS.muted }}>{label}</span>
+        <span className="font-mono text-[11px] font-bold" style={{ color: col }}>{value.toFixed(2)}x</span>
+      </div>
+      <div className="text-[9px] leading-tight mt-0.5" style={{ color: COLORS.mutedDark }}>{detail}</div>
+    </div>
+  );
+}
+
+function PriceBox({ label, value, sub, highlight, tone }) {
+  const isLive = tone === "live";
+  return (
+    <div className="rounded-lg px-2 py-2 text-center" style={{ background: highlight ? "rgba(232,163,61,0.10)" : isLive ? "rgba(111,160,201,0.10)" : COLORS.surface2, border: `1px solid ${highlight ? COLORS.gold : isLive ? "#6FA0C9" : COLORS.border}` }}>
+      <div className="text-[9px] uppercase tracking-wide mb-0.5" style={{ color: COLORS.muted }}>{label}</div>
+      <div className="font-mono font-black text-lg" style={{ color: highlight ? COLORS.gold : isLive ? "#6FA0C9" : COLORS.text }}>{value}<span className="text-[10px] font-normal" style={{ color: COLORS.muted }}>{sub}</span></div>
+    </div>
+  );
+}
+
+function Pill({ label, tone }) {
+  const toneColor = tone === "red" ? COLORS.red : tone === "gold" ? COLORS.gold : tone === "green" ? COLORS.green : COLORS.muted;
+  return <span className="text-[10px] px-2 py-1 rounded-full font-semibold" style={{ background: `${toneColor}1E`, color: toneColor }}>{label}</span>;
+}
+
+// Vista d'insieme sulla scarsita' di TUTTI i ruoli, sempre visibile durante l'asta (non solo
+// quando apri un giocatore). Una barra per ruolo: quanti Top/Ottimo restano rispetto al totale
+// di partenza. Il colore passa da verde a rosso man mano che si esauriscono.
+// Pannello budget: quanto hai speso vs quanto sarebbe "in piano" per ogni fascia di ogni ruolo,
+// secondo la ripartizione di mercato reale. Aiuta a capire in tempo reale se stai sforando
+// un reparto (es. troppi crediti sui Top a centrocampo) prima che sia troppo tardi per aggiustare.
+function BudgetTrackingPanel({ tracking, myTeam }) {
+  const [expanded, setExpanded] = useState(false);
+  const budgetLeft = myTeam.budget - myTeam.spent;
+
+  const totaleIdealeSpeso = ROLE_SEQUENCE.reduce((a, r) => a + tracking[r].totaleSpeso, 0);
+  const totaleIdealePiano = ROLE_SEQUENCE.reduce((a, r) => a + tracking[r].totaleIdeale, 0);
+  const scostamentoGlobale = totaleIdealeSpeso - totaleIdealePiano;
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 mb-4">
+      <div className="rounded-xl overflow-hidden" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+        <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between px-4 py-3">
+          <span className="flex items-center gap-1.5 text-sm font-bold">
+            <Wallet size={14} color={COLORS.gold} /> Budget per fascia — {myTeam.name}
+          </span>
+          <ChevronDown size={14} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s", color: COLORS.muted }} />
+        </button>
+        <div className="px-4 pb-2 text-xs" style={{ color: COLORS.muted }}>
+          Budget residuo: <span className="font-mono font-bold" style={{ color: COLORS.text }}>{budgetLeft}cr</span>
+          {" · "}
+          {scostamentoGlobale > 20 ? (
+            <span style={{ color: COLORS.red }}>hai speso {Math.round(scostamentoGlobale)}cr più del piano fin qui</span>
+          ) : scostamentoGlobale < -20 ? (
+            <span style={{ color: COLORS.gold }}>hai ancora {Math.round(-scostamentoGlobale)}cr di margine rispetto al piano</span>
+          ) : (
+            <span style={{ color: COLORS.green }}>sei in linea col piano</span>
+          )}
+        </div>
+        {expanded && (
+          <div className="px-4 pb-4 space-y-3">
+            {ROLE_SEQUENCE.map((r) => {
+              const t = tracking[r];
+              return (
+                <div key={r}>
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs font-bold" style={{ color: ROLE_INFO[r].color }}>{ROLE_INFO[r].label}</span>
+                    <span className="text-[10px] font-mono" style={{ color: COLORS.muted }}>
+                      {Math.round(t.totaleSpeso)}cr / {Math.round(t.totaleIdeale)}cr piano
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-1">
+                    {["Top", "Ottimo", "Buono", "Titolare"].map((tier) => {
+                      const f = t.fasce[tier];
+                      const pct = f.ideale > 0 ? f.speso / f.ideale : (f.speso > 0 ? 2 : 0);
+                      const over = pct > 1.15;
+                      const color = TIER_STYLE[tier].color;
+                      return (
+                        <div key={tier} className="rounded-md px-1.5 py-1" style={{ background: COLORS.surface2 }}>
+                          <div className="text-[8px] uppercase font-bold mb-0.5" style={{ color }}>{tier}</div>
+                          <div className="text-[10px] font-mono" style={{ color: over ? COLORS.red : COLORS.text }}>{Math.round(f.speso)}</div>
+                          <div className="text-[8px]" style={{ color: COLORS.mutedDark }}>/{Math.round(f.ideale)}cr</div>
+                          <div className="w-full h-1 rounded-full mt-1" style={{ background: "rgba(255,255,255,0.08)" }}>
+                            <div className="h-1 rounded-full" style={{ width: `${Math.min(100, pct * 100)}%`, background: over ? COLORS.red : color }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+            <p className="text-[10px] pt-1" style={{ color: COLORS.mutedDark }}>
+              Il "piano" è calibrato sulla ripartizione reale di mercato (7% P · 19% D · 32% C · 42% A), scalata al tuo budget e distribuita per fascia secondo il modello. Non è una regola rigida: è un riferimento per accorgerti prima se un reparto si sta mangiando troppo budget rispetto agli altri.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ScarcityPanel({ scarcity, currentRole, onSelectRole }) {
+  const [expanded, setExpanded] = useState(false);
+
+  function colorFor(pct) {
+    if (pct <= 0.15) return COLORS.red;
+    if (pct <= 0.35) return COLORS.gold;
+    return COLORS.green;
+  }
+
+  // Riga di sintesi: il ruolo piu' "caldo" in assoluto (percentuale piu' bassa), per un avviso rapido
+  const ruoloCaldo = ROLE_SEQUENCE.reduce((worst, r) => (scarcity[r].pctRimasto < scarcity[worst].pctRimasto ? r : worst), ROLE_SEQUENCE[0]);
+  const isCaldo = scarcity[ruoloCaldo].pctRimasto <= 0.35;
+
+  return (
+    <div className="max-w-2xl mx-auto px-4 mt-2">
+      <div className="rounded-xl overflow-hidden" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+        <button onClick={() => setExpanded(!expanded)} className="w-full flex items-center justify-between px-3 py-2">
+          <span className="flex items-center gap-1.5 text-xs font-bold">
+            <AlertTriangle size={13} color={isCaldo ? COLORS.red : COLORS.muted} />
+            Scarsita' per reparto
+            {isCaldo && (
+              <span className="text-[10px] font-semibold ml-1" style={{ color: COLORS.red }}>
+                {ROLE_INFO[ruoloCaldo].label} si sta seccando
+              </span>
+            )}
+          </span>
+          <ChevronDown size={14} style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.15s", color: COLORS.muted }} />
+        </button>
+        {expanded && (
+          <div className="px-3 pb-3 space-y-2">
+            {ROLE_SEQUENCE.map((r) => {
+              const s = scarcity[r];
+              const color = colorFor(s.pctRimasto);
+              return (
+                <button key={r} onClick={() => onSelectRole(r)} className="w-full text-left">
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="font-semibold" style={{ color: currentRole === r ? COLORS.text : COLORS.muted }}>{ROLE_INFO[r].label}</span>
+                    <span style={{ color }}>
+                      {s.rimastiTopOttimo}/{s.totaleTopOttimoIniziale} Top+Ottimo rimasti · {s.slotResidui} slot da riempire (tutte le squadre)
+                    </span>
+                  </div>
+                  <div className="w-full h-1.5 rounded-full" style={{ background: COLORS.surface2 }}>
+                    <div className="h-1.5 rounded-full transition-all" style={{ width: `${Math.max(4, s.pctRimasto * 100)}%`, background: color }} />
+                  </div>
+                </button>
+              );
+            })}
+            <p className="text-[10px] pt-1" style={{ color: COLORS.mutedDark }}>
+              Verde = tanta scelta ancora. Giallo/rosso = i migliori di quel ruolo stanno finendo: se ti serve ancora quel reparto, valuta di anticipare la spesa.
+            </p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function RecommendationsPanel({ rec, budgetInfo, role, show, setShow, expanded, setExpanded, tierFilter, setTierFilter, roleScope, setRoleScope, onOpenDetail }) {
+  function toggleTier(t) {
+    setTierFilter((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+  }
+  const visible = expanded ? rec.pool.slice(0, 40) : rec.pool.slice(0, 6);
+
+  return (
+    <div className="mt-3 rounded-xl overflow-hidden" style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}` }}>
+      <button onClick={() => setShow(!show)} className="w-full flex items-center justify-between px-4 py-3">
+        <span className="flex items-center gap-2 text-sm font-bold"><TrendingUp size={15} color={COLORS.gold} /> Consigli live</span>
+        <ChevronDown size={16} style={{ transform: show ? "rotate(180deg)" : "none", transition: "transform 0.15s", color: COLORS.muted }} />
+      </button>
+      {show && (
+        <div className="px-4 pb-4">
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            <SignalBox icon={<AlertTriangle size={13} />} label={`Top rimasti in ${role}`} value={rec.topLeft} warn={rec.topLeft <= 2} />
+            <SignalBox icon={<Wallet size={13} />} label="Max rilancio ORA" value={`${Math.max(0, Math.round(budgetInfo.maxRilancioOra))}cr`} warn={budgetInfo.maxRilancioOra < budgetInfo.avgPerSlot} />
+          </div>
+          <p className="text-[10px] mb-3" style={{ color: COLORS.mutedDark }}>
+            Media {Math.round(budgetInfo.avgPerSlot)}cr/slot su {budgetInfo.slotsLeftMine} slot residui · budget libero {Math.round(budgetInfo.budgetLeftMine)}cr
+          </p>
+
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex gap-1">
+              <FilterChip active={roleScope === "current"} label={`Solo ${role}`} onClick={() => setRoleScope("current")} />
+              <FilterChip active={roleScope === "all"} label="Tutti i ruoli" onClick={() => setRoleScope("all")} />
+            </div>
+            <SlidersHorizontal size={13} color={COLORS.muted} />
+          </div>
+          <div className="flex gap-1 mb-3 flex-wrap">
+            {TIER_ORDER.map((t) => (
+              <FilterChip key={t} active={tierFilter.includes(t)} label={t} color={TIER_STYLE[t].color} onClick={() => toggleTier(t)} />
+            ))}
+          </div>
+
+          {visible.length === 0 ? (
+            <p className="text-xs" style={{ color: COLORS.muted }}>Nessun giocatore con questi filtri.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {visible.map((p, i) => (
+                <button key={i} onClick={() => onOpenDetail(p)} className="w-full flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg text-left" style={{ background: COLORS.surface2 }}>
+                  <span>{p.n} <span style={{ color: COLORS.muted }}>({p.s}{roleScope === "all" ? `, ${p.r}` : ""})</span></span>
+                  <div className="flex items-center gap-2">
+                    <span style={{ color: TIER_STYLE[p.t].color }} className="font-semibold">{p.t}</span>
+                    <span className="font-mono" style={{ color: COLORS.gold }}>{p.pi}cr</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+          {rec.pool.length > 6 && (
+            <button onClick={() => setExpanded(!expanded)} className="w-full mt-2 py-1.5 text-[11px] font-semibold" style={{ color: COLORS.gold }}>
+              {expanded ? "Mostra meno" : `Mostra tutti (${rec.pool.length})`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SignalBox({ icon, label, value, warn }) {
+  return (
+    <div className="rounded-lg px-2.5 py-2" style={{ background: warn ? "rgba(220,80,80,0.10)" : COLORS.surface2, border: `1px solid ${warn ? COLORS.redDim : COLORS.border}` }}>
+      <div className="flex items-center gap-1 text-[10px] mb-0.5" style={{ color: warn ? COLORS.red : COLORS.muted }}>{icon} {label}</div>
+      <div className="font-mono font-bold text-sm" style={{ color: warn ? COLORS.red : COLORS.text }}>{value}</div>
+    </div>
+  );
+}
+
+function Toast({ toast }) {
+  const color = toast.kind === "success" ? COLORS.green : toast.kind === "warn" ? COLORS.red : COLORS.gold;
+  return <div className="fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2.5 rounded-lg text-xs font-semibold shadow-lg z-30" style={{ background: COLORS.surface2, border: `1px solid ${color}`, color }}>{toast.msg}</div>;
+}
+</script>
+</body>
+</html>
