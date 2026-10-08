@@ -156,6 +156,46 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
 .lg .nm{flex:1;min-width:0}
 .lg .lgp{width:38px;text-align:right}
 @media(max-width:520px){.pk{grid-template-columns:repeat(2,1fr)}.pk .val{font-size:19px}.pk .hero .val{font-size:28px}}
+/* note, riepilogo, regole */
+label>textarea{display:block;width:100%;margin-top:4px;resize:vertical}
+.tnote{display:inline-block;max-width:100%;margin-top:3px;font-size:12px;color:var(--ink);background:var(--soft);border:1px solid var(--line);border-radius:7px;padding:1px 7px;overflow-wrap:anywhere;cursor:pointer}
+.btn.hasnote{background:var(--soft);border-color:var(--accent)}
+.rprev{margin-top:4px}
+.rxh{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center;margin-bottom:6px;font-size:13px}
+.rxl{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:2px 8px}
+.rx{display:grid;grid-template-columns:auto auto 1fr auto;gap:6px 8px;align-items:start;padding:6px 0;border-bottom:1px solid var(--line);margin:0;font-size:13px;color:var(--ink);cursor:pointer}
+.rx:last-child{border-bottom:0}
+.rx>input{display:inline-block;width:auto;margin:2px 0 0}
+.rxs{min-width:0;overflow-wrap:anywhere}
+.rxd0{color:var(--muted)}
+.rg{border-bottom:1px solid var(--line)}
+.rg>summary{display:flex;gap:8px;align-items:flex-start;padding:6px 0;list-style:none;cursor:pointer;color:var(--ink);font-size:13px}
+.rg>summary::-webkit-details-marker{display:none}
+.rg>summary::after{content:'▸';margin-left:auto;color:var(--muted)}
+.rg[open]>summary::after{content:'▾'}
+.rg>summary input{margin:2px 0 0;flex:none}
+.rgrows{padding:0 0 4px 22px}
+/* vista per mese */
+.pm{border-collapse:separate;border-spacing:0;font-size:13px;width:100%}
+.pm th,.pm td{padding:5px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+.pm th{font-weight:600;color:var(--muted);font-size:12px;vertical-align:bottom;padding:4px 4px}
+.pm th:first-child,.pm td:first-child{text-align:left;position:sticky;left:0;background:var(--card);z-index:1;min-width:130px;max-width:170px;overflow:hidden;text-overflow:ellipsis;border-right:1px solid var(--line)}
+.pm .pmh{font:inherit;color:inherit;background:transparent;border:0;cursor:pointer;padding:2px 4px;border-radius:6px;line-height:1.15}
+.pm .pmh:hover{background:var(--soft)}
+.pm .pmh small{display:block;font-weight:400;opacity:.8}
+.pm th.cur{color:var(--accent)}
+.pm th.fut{opacity:.55}
+.pm tr.sec td{background:var(--soft);font-weight:650;color:var(--ink);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+.pm tr.tot td{font-weight:650;background:var(--card)}
+.pm td.pmc{cursor:pointer}
+.pm td.pmc:hover{outline:2px solid var(--accent);outline-offset:-2px}
+.pm td.over{color:var(--bad);font-weight:650}
+.pm td.pmz{color:var(--line)}
+.pm td.cur{box-shadow:inset 2px 0 0 var(--accent)}
+.pm td.fut{opacity:.6}
+.pm .tc,.pm .ta{border-left:1px solid var(--line);font-weight:600}
+.pm .dot{width:9px;height:9px;margin-right:4px;vertical-align:baseline}
+@media(max-width:520px){.pm th:first-child,.pm td:first-child{min-width:112px;max-width:130px}}
 </style>
 </head>
 <body>
@@ -164,6 +204,7 @@ details summary{cursor:pointer;color:var(--muted);font-size:13px}
   <nav>
     <button data-act="tab" data-tab="pat">Patrimonio</button>
     <button data-act="tab" data-tab="home">Panoramica</button>
+    <button data-act="tab" data-tab="pm">Per mese</button>
     <button data-act="tab" data-tab="mov">Movimenti</button>
     <button data-act="tab" data-tab="bol">Bollette</button>
     <button data-act="tab" data-tab="rec">Ricorrenti</button>
@@ -434,7 +475,7 @@ function shortDesc(s){
   if((m=d.match(/Creditor id\.?\s*\S+\s+(.+?)\s+Id Mandato/i))) return 'Addebito diretto · '+m[1].trim();
   if((m=d.match(/^Compravendita Titoli\s+(.+?)\s+Qta\/Val\.nom\.\s*([\d.,]+)/i))){
     var qn=parseAmount(m[2]);
-    return 'Acquisto titoli · '+m[1].trim()+(qn!=null?' × '+qn.toLocaleString('it-IT'):'');
+    return 'Acquisto titoli · '+m[1].trim()+(qn!=null?' × '+fmtNum(qn,0,3):'');
   }
   function fnote(){
     var n2=d.match(/(?:Causale|Info-Cli):\s*(.+)$/i),t2=n2&&n2[1].trim();
@@ -924,6 +965,89 @@ function patStale(it,today){
   if(!it||!it.d) return false;
   return dayNum(today)-dayNum(it.d)>(it.k==='pas'?120:400);
 }
+// ---- riepilogo investimenti e regole applicate ai movimenti già presenti ----
+function ymIdx(ym){var p=ym.split('-');return +p[0]*12+ +p[1]-1;}
+// acquisti PAC (sg «A», fino a maxCents) negli ultimi n mesi che finiscono a endYM; la media mensile usa i mesi trascorsi dal primo acquisto della finestra
+function pacTotals(secs,endYM,n,maxCents){
+  var from=addMonths(endYM,-(n-1)),tot=0,cnt=0,first=null;
+  (secs||[]).forEach(function(x){
+    if(!x||x.sg!=='A'||typeof x.cv!=='number'||!x.d) return;
+    var ym=x.d.slice(0,7);
+    if(ym<from||ym>endYM||(maxCents&&x.cv>maxCents)) return;
+    tot+=x.cv;cnt++;
+    if(!first||ym<first) first=ym;
+  });
+  var m=first?ymIdx(endYM)-ymIdx(first)+1:0;
+  return {tot:tot,cnt:cnt,months:m,avg:m?Math.round(tot/m):0};
+}
+// movimenti già presenti la cui descrizione contiene la parola chiave: change = quelli che oggi hanno un'altra categoria (più recenti per primi), same = quanti sono già nella categoria
+function ruleMatches(txs,kw,catId){
+  var re=kwRegex(kw),out={change:[],same:0};
+  if(!re) return out;
+  (txs||[]).forEach(function(t){
+    if(!re.test(normDesc(t.s))) return;
+    if((t.c||null)===(catId||null)) out.same++; else out.change.push(t);
+  });
+  out.change.sort(function(a,b){return a.d<b.d?1:a.d>b.d?-1:(a.id<b.id?-1:1);});
+  return out;
+}
+// ---- vista per mese: matrice categorie × mesi ----
+// range: '12' = ultimi 12 mesi che finiscono a thisYM; 'AAAA' = gennaio–dicembre di quell'anno
+function pmMonths(range,thisYM){
+  var out=[],i;
+  if(/^\d{4}$/.test(range)){for(i=1;i<=12;i++) out.push(range+'-'+pad2(i));return out;}
+  for(i=11;i>=0;i--) out.push(addMonths(thisYM,-i));
+  return out;
+}
+// txs: movimenti; months: elenco AAAA-MM; types: {idCategoria: tipo}; opt: {acct, cash}
+// competenza (default): una spesa ripartita conta per le sue quote; cash=true: tutto nel mese della data. Giroconti ed esclusi non contano.
+function monthMatrix(txs,months,types,opt){
+  opt=opt||{};
+  var n=months.length,idx={},z=function(){var a=[];for(var i=0;i<n;i++) a.push(0);return a;};
+  var o={months:months,spesa:{},entrata:{},risp:{},ent:z(),usc:z(),rsp:z(),first:null,count:0};
+  months.forEach(function(ym,i){idx[ym]=i;});
+  function add(g,key,i,v){(g[key]||(g[key]=z()))[i]+=v;}
+  (txs||[]).forEach(function(t){
+    if(!t||!t.d) return;
+    if(opt.acct&&opt.acct!=='all'&&t.a!==opt.acct) return;
+    var ty=types&&types[t.c]?types[t.c]:(t.m<0?'spesa':'entrata');
+    var parts=opt.cash?[{ym:t.d.slice(0,7),m:t.m}]:txParts(t);
+    parts.forEach(function(p){if(!o.first||p.ym<o.first) o.first=p.ym;});
+    if(ty!=='spesa'&&ty!=='entrata'&&ty!=='risparmio') return;
+    parts.forEach(function(p){
+      var i=idx[p.ym];if(i==null) return;
+      var k=t.c||'_none';
+      if(ty==='spesa'){add(o.spesa,k,i,-p.m);o.usc[i]+=-p.m;}
+      else if(ty==='entrata'){add(o.entrata,k,i,p.m);o.ent[i]+=p.m;}
+      else{add(o.risp,k,i,-p.m);o.rsp[i]+=-p.m;}
+      o.count++;
+    });
+  });
+  return o;
+}
+// mesi su cui calcolare le medie: quelli completi (prima di thisYM) a partire dal primo mese con dati; se non ce ne sono, anche il mese in corso
+function pmAvgMonths(months,firstYM,thisYM){
+  var a=months.filter(function(ym){return ym<thisYM&&(!firstYM||ym>=firstYM);});
+  return a.length?a:months.filter(function(ym){return ym<=thisYM&&(!firstYM||ym>=firstYM);});
+}
+// ---- numeri all'italiana: punto per le migliaia (sempre, anche sotto 10.000) e virgola per i decimali ----
+function fmtNum(x,minDec,maxDec){
+  x=+x;
+  if(!isFinite(x)) return '';
+  minDec=minDec||0;maxDec=maxDec==null?minDec:Math.max(maxDec,minDec);
+  var s=Math.abs(x).toFixed(maxDec),p=s.split('.'),fr=p[1]||'';
+  while(fr.length>minDec&&fr.charAt(fr.length-1)==='0') fr=fr.slice(0,-1);
+  var out=p[0].replace(/\B(?=(\d{3})+(?!\d))/g,'.')+(fr?','+fr:'');
+  return (x<0&&/[1-9]/.test(out)?'-':'')+out;
+}
+function nf(n){return fmtNum(n,0,0);}
+// categorie in ordine alfabetico (senza distinguere maiuscole e accenti)
+function sortCats(list){
+  return (list||[]).slice().sort(function(a,b){
+    var r=String(a.n||'').localeCompare(String(b.n||''),'it',{sensitivity:'base',numeric:true});
+    return r||(a.id<b.id?-1:a.id>b.id?1:0);
+  });
+}
 // ==/CORE==
 
 // ===== Dati =====
@@ -1046,8 +1170,7 @@ function removeItem(coll,id){S[coll]=S[coll].filter(function(x){return x.id!==id
 // ===== Helpers =====
 function $(s){return document.querySelector(s);}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
-var NF=new Intl.NumberFormat('it-IT',{style:'currency',currency:'EUR'});
-function eur(c){return NF.format((c||0)/100);}
+function eur(c){return fmtNum((c||0)/100,2,2)+'\u00a0€';}
 function eurS(c){return (c>0?'+':'')+eur(c);}
 function fd(iso){return iso?iso.split('-').reverse().join('/'):'';}
 function todayISO(){var d=new Date();return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());}
@@ -1083,7 +1206,7 @@ function applyOwnTransfers(){
 function runTransfers(){var g=giroId();return detectTransfers(S.tx,g,4,rispId())+detectReversals(S.tx,g);}
 function catOptionsHtml(){
   return TYPES.map(function(t){
-    var cs=S.cats.filter(function(c){return c.t===t;});
+    var cs=sortCats(S.cats.filter(function(c){return c.t===t;}));
     return cs.length?'<optgroup label="'+TL[t]+'">'+cs.map(function(c){return '<option value="'+esc(c.id)+'">'+esc(c.n)+'</option>';}).join('')+'</optgroup>':'';
   }).join('');
 }
@@ -1107,7 +1230,7 @@ function txFor(f){
     if(f.acct&&f.acct!=='all'&&t.a!==f.acct) return;
     if(f.cat&&(f.cat==='_none'?t.c:t.c!==f.cat)) return;
     if(f.batch&&t.b!==f.batch) return;
-    if(qq&&normDesc(t.s).indexOf(qq)<0) return;
+    if(qq&&normDesc(t.s).indexOf(qq)<0&&normDesc(t.n||'').indexOf(qq)<0) return;
     if(!f.month){out.push(t);return;}
     if(f.cash||!t.al){if(t.d.indexOf(f.month)===0) out.push(t);return;}
     txParts(t).forEach(function(p){if(p.ym===f.month) out.push(Object.assign({},t,{m:p.m,_p:p.ym,_tot:t.m}));});
@@ -1126,12 +1249,12 @@ function delta(cur,prev,goodUp){
   var p=(cur-prev)/Math.abs(prev)*100;
   if(Math.abs(p)<0.5) return '<span class="muted">= mese prec.</span>';
   var up=p>0,good=goodUp?up:!up;
-  return '<span class="'+(good?'good':'bad')+'">'+(up?'▲':'▼')+' '+Math.abs(Math.round(p))+'% vs mese prec.</span>';
+  return '<span class="'+(good?'good':'bad')+'">'+(up?'▲':'▼')+' '+nf(Math.abs(Math.round(p)))+'% vs mese prec.</span>';
 }
 
 // ===== Grafici =====
 function niceStep(x){var p=Math.pow(10,Math.floor(Math.log10(x))),r=x/p;return (r<=1?1:r<=2?2:r<=5?5:10)*p;}
-function shortEur(c){var e=c/100;return e>=1000?(e/1000).toLocaleString('it-IT',{maximumFractionDigits:1})+'k':String(Math.round(e));}
+function shortEur(c){var e=c/100,a=Math.abs(e);return a>=1e6?fmtNum(e/1e6,0,1)+'M':a>=1000?fmtNum(e/1000,0,1)+'k':fmtNum(Math.round(e),0,0);}
 function barChart(labels,series){
   var W=640,H=210,pl=42,pb=26,pt=10,pr=8;
   var max=Math.max.apply(null,[1].concat.apply([],series.map(function(s){return s.values;})));
@@ -1155,16 +1278,17 @@ function barChart(labels,series){
 // ===== Stato UI =====
 var thisYM=todayISO().slice(0,7);
 function mvDefaults(){return {acct:'all',month:'',cat:'',q:'',limit:150,sort:'d',dir:-1,batch:'',cash:false};}
-var U={tab:'pat',month:thisYM,acct:'ing_comune',mv:mvDefaults(),sel:{},bills:{tipo:'',anno:String(new Date().getFullYear())},inv:{pacOnly:true}};
+var U={pm:pmDefaults(),tab:'pat',month:thisYM,acct:'ing_comune',mv:mvDefaults(),sel:{},bills:{tipo:'',anno:String(new Date().getFullYear())},inv:{pacOnly:true}};
 
 function render(){
   document.querySelectorAll('nav button').forEach(function(b){b.classList.toggle('on',b.dataset.tab===U.tab);});
   if(U.acct!=='all'&&!acctById(U.acct)) U.acct='all';
-  var v={pat:viewPat,home:viewHome,mov:viewMov,bol:viewBol,rec:viewRec,acc:viewAcc,inv:viewInv,set:viewSet}[U.tab];
+  var v={pat:viewPat,pm:viewPm,home:viewHome,mov:viewMov,bol:viewBol,rec:viewRec,acc:viewAcc,inv:viewInv,set:viewSet}[U.tab];
   if(U.tab==='pat') patAuto();
   $('#view').innerHTML=v();
   var hd=document.querySelector('header');if(hd) document.documentElement.style.setProperty('--hh',(hd.offsetHeight+6)+'px');
   if(U.tab==='mov') renderTxList();
+  if(U.tab==='pm'){var pt=document.querySelector('table.pm'),pc=pt&&pt.querySelector('th.cur');if(pc&&window.innerWidth<=700) pt.parentNode.scrollLeft=pc.offsetLeft+pc.offsetWidth-pt.parentNode.clientWidth+6;}
 }
 
 // ===== Panoramica =====
@@ -1220,6 +1344,77 @@ function viewHome(){
   return h;
 }
 
+// ===== Per mese =====
+function pmDefaults(){return {range:'12',acct:'all',cash:false};}
+function fmt0(c){return fmtNum(Math.round(c/100),0,0);}
+function pmYears(){
+  var lo=null,hi=+thisYM.slice(0,4);
+  S.tx.forEach(function(t){var y=+t.d.slice(0,4);if(lo==null||y<lo) lo=y;if(y>hi) hi=y;});
+  var out=[];for(var y=hi;y>=(lo==null?hi:lo);y--) out.push(String(y));
+  return out;
+}
+function viewPm(){
+  var P=U.pm,types={};
+  S.cats.forEach(function(c){types[c.id]=c.t;});
+  var months=pmMonths(P.range,thisYM),M=monthMatrix(S.tx,months,types,{acct:P.acct,cash:P.cash});
+  var nc=months.length;
+  var h='<div class="card" style="margin-bottom:12px"><div class="toolbar" style="margin:0">'+
+    '<select data-chg="pm-range" aria-label="Periodo">'+opt('12','Ultimi 12 mesi',P.range)+pmYears().map(function(y){return opt(y,'Anno '+y,P.range);}).join('')+'</select>'+
+    '<select data-chg="pm-acct" aria-label="Conto"><option value="all">Tutti i conti</option>'+movAccounts().map(function(x){return opt(x.id,x.n,P.acct);}).join('')+'</select>'+
+    '<label class="chk" style="margin:0" title="Una spesa ripartita su più mesi (es. 3 mesi di condominio pagati insieme) conta per la quota di ciascun mese. Togli la spunta per contare tutto nel mese del pagamento."><input type="checkbox" data-chg="pm-comp"'+(P.cash?'':' checked')+'> per competenza</label></div></div>';
+  if(!S.tx.length||!M.count){
+    return h+'<div class="card"><div class="empty">'+(S.tx.length?'Nessun movimento nel periodo scelto.':'Nessun movimento: importa un estratto conto dalla scheda Movimenti.')+'</div></div>';
+  }
+  var avgM=pmAvgMonths(months,M.first,thisYM),na=avgM.length||1,pos={};
+  months.forEach(function(ym,i){pos[ym]=i;});
+  var sumOn=function(arr){return avgM.reduce(function(s,ym){return s+(arr[pos[ym]]||0);},0);};
+  var aUsc=sumOn(M.usc)/na,aEnt=sumOn(M.ent)/na,ci=pos[thisYM];
+  // KPI
+  var curU=ci!=null?M.usc[ci]:null,vs=curU!=null&&aUsc>0?Math.round((curU/aUsc-1)*100):null;
+  h+='<div class="grid kpis">'+
+    '<div class="kpi"><div class="lbl">Spese medie al mese</div><div class="val bad">'+eur(Math.round(aUsc))+'</div><div class="sub">su '+na+(na===1?' mese':' mesi')+(avgM.length&&avgM[avgM.length-1]===thisYM?' (compreso quello in corso)':' completi')+'</div></div>'+
+    '<div class="kpi"><div class="lbl">Entrate medie al mese</div><div class="val good">'+eur(Math.round(aEnt))+'</div><div class="sub">giroconti esclusi</div></div>'+
+    '<div class="kpi"><div class="lbl">Differenza media</div><div class="val '+(aEnt-aUsc>=0?'good':'bad')+'">'+eurS(Math.round(aEnt-aUsc))+'</div><div class="sub">entrate − spese al mese</div></div>'+
+    (curU!=null?'<div class="kpi"><div class="lbl">Spese del mese in corso</div><div class="val">'+eur(curU)+'</div><div class="sub">'+(vs==null?'':'<span class="'+(vs>0?'bad':'good')+'">'+(vs>0?'▲ +':'▼ ')+nf(vs)+'%</span> rispetto alla media')+'</div></div>':'')+'</div>';
+  h+='<div class="card"><h2>Entrate e spese per mese</h2>'+barChart(months.map(mshort),[{name:'Entrate',color:'var(--good)',values:M.ent.map(function(v){return Math.max(0,v);})},{name:'Spese',color:'var(--bad)',values:M.usc.map(function(v){return Math.max(0,v);})}])+
+    '<div class="note"><span class="good">■</span> entrate &nbsp; <span class="bad">■</span> spese (giroconti esclusi)</div></div>';
+  // tabella
+  var head='<tr><th>Categoria</th>'+months.map(function(ym){
+    var cur=ym===thisYM,fut=ym>thisYM;
+    return '<th class="'+(cur?'cur':fut?'fut':'')+'"><button type="button" class="pmh" data-act="pm-month" data-ym="'+ym+'" title="Apri la panoramica di '+esc(mlabel(ym))+(cur?' (mese in corso)':'')+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></button></th>';
+  }).join('')+'<th class="tc">Totale</th><th class="ta" title="Media dei mesi completi, dal primo mese con dati">Media</th></tr>';
+  function tot(arr){return arr.reduce(function(s,v){return s+v;},0);}
+  function cells(arr,o){
+    var mx=0;arr.forEach(function(v){if(v>mx) mx=v;});
+    var s=months.map(function(ym,i){
+      var v=arr[i],cls=(o.cat?'pmc':'')+(ym===thisYM?' cur':ym>thisYM?' fut':'');
+      if(!v) return '<td class="pmz'+(ym===thisYM?' cur':'')+'">–</td>';
+      var over=o.bud&&v>o.bud,heat=mx>0&&v>0&&!o.noheat?' style="background:color-mix(in srgb,var(--accent) '+Math.round(v/mx*20)+'%,transparent)"':'';
+      return '<td class="'+cls+(over?' over':'')+'"'+heat+(o.cat?' data-act="pm-cell" data-ym="'+ym+'" data-cat="'+esc(o.cat)+'" title="'+esc(o.nm)+' · '+esc(mlabel(ym))+': '+esc(eur(v))+(o.bud?' (budget '+esc(eur(o.bud))+')':'')+' · apri i movimenti"':'')+'>'+fmt0(v)+'</td>';
+    }).join('');
+    var t=tot(arr),a=avgM.reduce(function(x,ym){return x+(arr[pos[ym]]||0);},0)/na;
+    return s+'<td class="tc">'+fmt0(t)+'</td><td class="ta'+(o.bud&&a>o.bud?' over':'')+'">'+fmt0(a)+'</td>';
+  }
+  function sec(label){return '<tr class="sec"><td>'+label+'</td><td colspan="'+(nc+2)+'"></td></tr>';}
+  function catRows(g,type){
+    var ks=Object.keys(g).filter(function(k){return tot(g[k])!==0;}).sort(function(a,b){return tot(g[b])-tot(g[a]);});
+    return ks.map(function(k){
+      var c=catById(k),nm=c?c.n:'Da categorizzare',bud=type==='spesa'&&c&&c.b?c.b:0;
+      return '<tr><td title="'+esc(nm)+(bud?' · budget '+esc(eur(bud))+' al mese':'')+'"><span class="dot" style="background:'+(c?c.col:'#9aa3b0')+'"></span> '+esc(nm)+'</td>'+cells(g[k],{cat:k,nm:nm,bud:bud})+'</tr>';
+    }).join('');
+  }
+  var body='';
+  if(tot(M.ent)||Object.keys(M.entrata).length) body+=sec('Entrate')+catRows(M.entrata,'entrata')+'<tr class="tot"><td>Totale entrate</td>'+cells(M.ent,{noheat:true})+'</tr>';
+  body+=sec('Spese')+catRows(M.spesa,'spesa')+'<tr class="tot"><td>Totale spese</td>'+cells(M.usc,{noheat:true})+'</tr>';
+  var dif=M.ent.map(function(v,i){return v-M.usc[i];});
+  body+='<tr class="tot dif"><td>Differenza</td>'+months.map(function(ym,i){var v=dif[i];return v?'<td class="'+(v>0?'good':'bad')+'">'+(v>0?'+':'')+fmt0(v)+'</td>':'<td class="pmz">–</td>';}).join('')+
+    '<td class="tc '+(tot(dif)>=0?'good':'bad')+'">'+(tot(dif)>0?'+':'')+fmt0(tot(dif))+'</td><td class="ta '+(aEnt-aUsc>=0?'good':'bad')+'">'+(aEnt-aUsc>0?'+':'')+fmt0(aEnt-aUsc)+'</td></tr>';
+  if(tot(M.rsp)) body+=sec('Risparmio / PAC')+catRows(M.risp,'risparmio');
+  h+='<div class="card"><h2>Categorie per mese · '+(P.cash?'per data di pagamento':'per competenza')+'</h2><div class="scroll"><table class="pm"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
+    '<p class="note">Importi in euro, arrotondati. Clicca un importo per vedere i movimenti di quel mese e categoria; clicca il mese per aprirne la panoramica (quello in corso è evidenziato in azzurro). Le celle rosse superano il budget mensile della categoria (impostabile in Impostazioni). Giroconti e movimenti esclusi non contano. La media usa i mesi completi, dal primo mese con dati. Un importo anomalo (es. l’acquisto della casa) falsa totali e medie: clicca la cella, seleziona quei movimenti e assegnali a una categoria di tipo «Escluso dai conti».</p></div>';
+  return h;
+}
+
 // ===== Movimenti =====
 function toSet(a){var o={};a.forEach(function(x){o[x]=1;});return o;}
 function isoOf(ts){var d=new Date(ts);return d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate());}
@@ -1249,11 +1444,12 @@ function mvRow(t,showAcc,opts){
   else if(t.al) pill='<span class="pill" title="'+esc(t.al.map(function(p){return mlabel(p[0])+': '+eur(p[1]);}).join(' · '))+'">ripartito su '+t.al.length+(t.al.length===1?' mese':' mesi')+'</span>';
   return '<tr class="mvr'+(sel?' sel':'')+'"><td class="c-chk"><input type="checkbox" data-chg="mv-sel" data-id="'+esc(t.id)+'"'+(sel?' checked':'')+' aria-label="Seleziona il movimento"></td>'+
     '<td class="c-d num">'+fd(t.d)+'</td>'+
-    '<td class="c-s"><div class="txd" title="'+esc(t.s)+'">'+esc(shortDesc(t.s)||'(senza descrizione)')+'</div><div class="txs"><span class="mobonly">'+esc(ac?ac.n:'?')+(pill?' · ':'')+'</span>'+pill+'</div></td>'+
+    '<td class="c-s"><div class="txd" title="'+esc(t.s)+'">'+esc(shortDesc(t.s)||'(senza descrizione)')+'</div><div class="txs"><span class="mobonly">'+esc(ac?ac.n:'?')+(pill?' · ':'')+'</span>'+pill+'</div>'+(t.n?'<div class="tnote" data-act="tx-note" data-id="'+esc(t.id)+'" title="Modifica la nota">📝 '+esc(t.n)+'</div>':'')+'</td>'+
     (showAcc?'<td class="c-a muted">'+esc(ac?ac.n:'?')+'</td>':'')+
     '<td class="c-c"><select data-chg="setcat" data-id="'+esc(t.id)+'">'+withSel(opts,t.c)+'</select></td>'+
     '<td class="c-m num right '+(t.m<0?'bad':'good')+'">'+eur(t.m)+'</td>'+
     '<td class="c-x"><button class="btn sm" data-act="tx-edit" data-id="'+esc(t.id)+'" title="Modifica data, importo, descrizione, conto">✎</button> '+
+    '<button class="btn sm'+(t.n?' hasnote':'')+'" data-act="tx-note" data-id="'+esc(t.id)+'" title="'+(t.n?'Modifica la nota':'Aggiungi una nota')+'">📝</button> '+
     '<button class="btn sm" data-act="tx-al" data-id="'+esc(t.id)+'" title="Ripartisci su più mesi (competenza)">📅</button> '+
     '<button class="btn sm" data-act="tx-rule" data-id="'+esc(t.id)+'" title="Crea regola da questo movimento">🏷</button> '+
     '<button class="btn sm danger" data-act="tx-del" data-id="'+esc(t.id)+'" title="Elimina">🗑</button></td></tr>';
@@ -1262,7 +1458,7 @@ function renderTxList(){
   var f=U.mv,list=mvList(),have=toSet(S.tx.map(function(t){return t.id;}));
   Object.keys(U.sel).forEach(function(id){if(!have[id]) delete U.sel[id];});
   var tot=list.reduce(function(s,t){return s+t.m;},0),sum=$('#txSummary');
-  if(sum) sum.textContent=list.length+' movimenti · netto '+eurS(tot);
+  if(sum) sum.textContent=nf(list.length)+' movimenti · netto '+eurS(tot);
   var box=$('#txList');if(!box) return;
   renderMvBar();
   if(!list.length){box.innerHTML='<div class="empty">Nessun movimento. Importa un estratto conto o cambia i filtri.</div>';return;}
@@ -1271,10 +1467,10 @@ function renderTxList(){
     var on=f.sort===k;
     return '<th class="'+cls+'"><button type="button" class="sortb'+(on?' on':'')+'" data-act="mv-sort" data-k="'+k+'" title="Ordina per '+label.toLowerCase()+'">'+label+'<span class="ar">'+(on?(f.dir>0?'▲':'▼'):'↕')+'</span></button></th>';
   }
-  var html='<label class="chk mvsel"><input type="checkbox" id="mvAllM" data-chg="mv-selall"> Seleziona tutti i '+list.length+' movimenti</label><div class="scroll"><table class="mvt"><thead><tr><th class="c-chk"><input type="checkbox" id="mvAll" data-chg="mv-selall" title="Seleziona tutti i '+list.length+' movimenti filtrati" aria-label="Seleziona tutti"></th>'+
+  var html='<label class="chk mvsel"><input type="checkbox" id="mvAllM" data-chg="mv-selall"> Seleziona tutti i '+nf(list.length)+' movimenti</label><div class="scroll"><table class="mvt"><thead><tr><th class="c-chk"><input type="checkbox" id="mvAll" data-chg="mv-selall" title="Seleziona tutti i '+nf(list.length)+' movimenti filtrati" aria-label="Seleziona tutti"></th>'+
     th('d','Data','c-d')+th('s','Descrizione','c-s')+(showAcc?th('a','Conto','c-a'):'')+th('c','Categoria','c-c')+th('m','Importo','c-m right')+'<th class="c-x"></th></tr></thead><tbody>'+
     list.slice(0,f.limit).map(function(t){return mvRow(t,showAcc,opts);}).join('')+'</tbody></table></div>';
-  if(list.length>f.limit) html+='<div style="text-align:center;padding:12px"><button class="btn" data-act="mv-more">Mostra altri ('+(list.length-f.limit)+')</button></div>';
+  if(list.length>f.limit) html+='<div style="text-align:center;padding:12px"><button class="btn" data-act="mv-more">Mostra altri ('+nf(list.length-f.limit)+')</button></div>';
   box.innerHTML=html;
   syncMvAll(list);
 }
@@ -1289,7 +1485,7 @@ function renderMvBar(){
   var bar=$('#mvBar');if(!bar) return;
   var n=Object.keys(U.sel).length;
   if(!n){bar.innerHTML='';return;}
-  bar.innerHTML='<div class="bulk"><b>'+n+(n===1?' selezionato':' selezionati')+'</b>'+
+  bar.innerHTML='<div class="bulk"><b>'+nf(n)+(n===1?' selezionato':' selezionati')+'</b>'+
     '<select data-chg="bulk-cat" aria-label="Assegna una categoria ai selezionati"><option value="">Assegna categoria…</option><option value="__none">— da categorizzare —</option>'+catOptionsHtml()+'</select>'+
     '<button class="btn sm" data-act="bulk-move">Sposta in un altro conto…</button>'+
     (n===1?'<button class="btn sm" data-act="bulk-al">Ripartisci su più mesi…</button>':'')+
@@ -1311,6 +1507,7 @@ function moveTx(ids,dest,carry){
     if(nid!==oid&&ex&&ex!==t){
       if(!ex.c&&t.c){ex.c=t.c;stamp(ex);}
       if(!ex.al&&t.al){ex.al=t.al;stamp(ex);}
+      if(!ex.n&&t.n){ex.n=t.n;stamp(ex);}
       drop[oid]=1;S.del[oid]=now;res.dup++;res.map[oid]=ex.id;return;
     }
     if(nid!==oid){S.del[oid]=now;delete S.del[nid];delete byId[oid];t.id=nid;byId[nid]=t;}
@@ -1347,7 +1544,7 @@ function undoBatch(id){
 }
 function bulkDelModal(ids){
   openModal('Elimina movimenti',
-    '<p style="margin-top:0">Stai per eliminare <b>'+ids.length+'</b> '+(ids.length===1?'movimento':'movimenti')+'.</p>'+
+    '<p style="margin-top:0">Stai per eliminare <b>'+nf(ids.length)+'</b> '+(ids.length===1?'movimento':'movimenti')+'.</p>'+
     '<label class="chk"><input type="checkbox" name="remember" checked> Ricorda l’eliminazione: se reimporti lo stesso estratto non tornano</label>'+
     '<p class="note">Togli la spunta se vuoi poterli reimportare (per esempio dopo aver corretto colonne o conto).</p>',
     function(f){
@@ -1363,7 +1560,7 @@ function moveModal(ids,batch){
   var allOfSrc=!!src&&S.tx.filter(function(t){return t.a===src.id;}).length===txs.length;
   var carry=batch?(batch.liban||batch.lnum||batch.na):(src&&(src.iban||src.num||src.anchor));
   openModal('Sposta in un altro conto',
-    '<p class="note" style="margin-top:0">'+txs.length+(txs.length===1?' movimento':' movimenti')+' da '+(src?'«'+esc(src.n)+'»':'più conti')+'.</p>'+
+    '<p class="note" style="margin-top:0">'+nf(txs.length)+(txs.length===1?' movimento':' movimenti')+' da '+(src?'«'+esc(src.n)+'»':'più conti')+'.</p>'+
     '<label>Conto di destinazione<select name="dest">'+accs.map(function(a){return opt(a.id,a.n,def.id);}).join('')+'</select></label>'+
     (carry&&(src||batch)?'<label class="chk"><input type="checkbox" name="carry"'+((batch||allOfSrc)?' checked':'')+'> Sposta anche IBAN / n. conto e saldo di riferimento letti da quell’estratto (utile se l’avevi caricato sul conto sbagliato)</label>':'')+
     '<p class="note">Categorie e ripartizioni restano. I movimenti già presenti nel conto di destinazione non vengono duplicati.</p>',
@@ -1374,12 +1571,12 @@ function moveModal(ids,batch){
         batch.a=dest;stamp(batch);save();
       }else r=moveTx(ids,dest,f.get('carry')&&src?{from:src.id}:null);
       U.sel={};render();
-      toast('Spostati '+r.moved+(r.moved===1?' movimento':' movimenti')+(r.dup?' · '+r.dup+' già presenti nel conto di destinazione (non duplicati)':''));
+      toast('Spostati '+nf(r.moved)+(r.moved===1?' movimento':' movimenti')+(r.dup?' · '+nf(r.dup)+' già presenti nel conto di destinazione (non duplicati)':''));
     },{ok:'Sposta'});
 }
 // --- competenza: ripartizione di un movimento su più mesi
 var alS=null;
-function alFmt(c){return (Math.abs(c)/100).toFixed(2).replace('.',',');}
+function alFmt(c){return fmtNum(Math.abs(c)/100,2,2);}
 function alTable(){
   return alS.parts.map(function(p,i){
     return '<div class="alr"><span>'+esc(mlabel(p[0]))+'</span><input name="p'+i+'" inputmode="decimal" value="'+alFmt(p[1])+'" data-chg="al-sum" aria-label="Quota di '+esc(mlabel(p[0]))+'"></div>';
@@ -1435,16 +1632,19 @@ function txModal(id){
     '<div class="row2"><label>Data<input type="date" name="d" value="'+v.d+'" required></label>'+
     '<label>Tipo<select name="dir">'+opt('-1','Uscita',v.m<0?'-1':'1')+opt('1','Entrata',v.m<0?'-1':'1')+'</select></label></div>'+
     '<label>Descrizione<input name="s" value="'+esc(v.s)+'" required></label>'+
-    '<div class="row2"><label>Importo (€)<input name="imp" inputmode="decimal" placeholder="0,00" value="'+(t?(Math.abs(t.m)/100).toFixed(2).replace('.',','):'')+'" required></label>'+
+    '<div class="row2"><label>Importo (€)<input name="imp" inputmode="decimal" placeholder="0,00" value="'+(t?fmtNum(Math.abs(t.m)/100,2,2):'')+'" required></label>'+
     '<label>Categoria<select name="c"><option value="">— da categorizzare —</option>'+withSel(catOptionsHtml(),v.c)+'</select></label></div>'+
+    '<label>Nota (opzionale)<input name="note" value="'+esc(v.n||'')+'" maxlength="500" autocomplete="off" placeholder="es. conguaglio 2025, rimborso da…"></label>'+
     (t&&t.al?'<p class="note">Questo movimento è ripartito su più mesi: se cambi l’importo la ripartizione viene annullata.</p>':'')+
     (t&&/^i/.test(t.id)?'<p class="note">Importato da estratto: se cambi data, importo, descrizione o conto, un nuovo import dello stesso file non lo duplicherà.</p>':''),
     function(f){
       var c=toCents(f.get('imp'));
       if(c==null||c===0){toast('Importo non valido');return false;}
       var nm=Math.abs(c)*(+f.get('dir')),nd=f.get('d'),ns=f.get('s').trim(),na=f.get('a'),nc=f.get('c')||null;
+      var nn=String(f.get('note')||'').trim().slice(0,500);
       if(!t){
-        S.tx.push(stamp({id:'m'+uid(),a:na,d:nd,m:nm,s:ns,c:nc}));
+        var nt={id:'m'+uid(),a:na,d:nd,m:nm,s:ns,c:nc};if(nn) nt.n=nn;
+        S.tx.push(stamp(nt));
         save();render();toast('Movimento aggiunto');return;
       }
       var cur=t;
@@ -1458,6 +1658,7 @@ function txModal(id){
       if(keyChanged&&/^i/.test(cur.id)){S.del[cur.id]=Date.now();cur.id='m'+uid();}
       if(nm!==cur.m) delete cur.al;
       cur.d=nd;cur.m=nm;cur.s=ns;cur.c=nc;
+      if(nn) cur.n=nn; else if(cur.n) cur.n='';
       if(cur.al){var n2=normAl(cur.al,cur);if(n2) cur.al=n2; else delete cur.al;}
       stamp(cur);save();render();toast('Movimento aggiornato');
     });
@@ -1470,29 +1671,143 @@ function impsCard(){
   h+=list.map(function(b){
     var n=S.tx.filter(function(t){return t.b===b.id;}).length,ac=acctById(b.a);
     return '<div class="bf"><div class="bi"><div class="bt"><b>'+esc(b.f||'estratto')+'</b></div>'+
-      '<div class="txs">'+fd(isoOf(b.at))+' · '+esc(ac?ac.n:'?')+(b.k==='cl'?' · con categorie':'')+' · '+n+(n===1?' movimento':' movimenti')+(b.n!==n?' (importati '+b.n+')':'')+'</div></div>'+
+      '<div class="txs">'+fd(isoOf(b.at))+' · '+esc(ac?ac.n:'?')+(b.k==='cl'?' · con categorie':'')+' · '+nf(n)+(n===1?' movimento':' movimenti')+(b.n!==n?' (importati '+nf(b.n)+')':'')+'</div></div>'+
       '<div style="white-space:nowrap;justify-self:start"><button class="btn sm" data-act="imp-view" data-id="'+esc(b.id)+'">Mostra</button> <button class="btn sm" data-act="imp-move" data-id="'+esc(b.id)+'">Sposta…</button> <button class="btn sm danger" data-act="imp-undo" data-id="'+esc(b.id)+'">Annulla</button></div></div>';
   }).join('')+'<p class="note">«Annulla» rimuove i movimenti di quell’importazione e ripristina IBAN e saldo letti da quel file; reimportando lo stesso file i movimenti tornano. «Sposta» li porta su un altro conto.</p></div>';
   return h;
 }
-function ruleModal(kw,catId){
+// ===== Riepilogo investimenti =====
+function invRecap(){
+  var T=todayISO(),etf=dossierInfo(null),bf=(S.bfp&&S.bfp.length)?bfpSummary(T):null;
+  if(!etf&&!bf) return '';
+  var ev=etf?etf.value:0,ec=etf?etf.cost:0,bv=bf?Math.round(bf.net):0,bc=bf?bf.cost:0;
+  var tot=ev+bv,cost=ec+bc,pl=tot-cost,pp=cost?pl/cost*100:0,est=!!(etf&&etf.rows.some(function(r){return r.est;}));
+  var pct=function(x){return (x>=0?'+':'')+fmtNum(x,1,1)+'%';};
+  var h='<div class="grid kpis pk"><div class="kpi hero"><div class="lbl">Totale investimenti</div><div class="val">'+eur(tot)+'</div>'+
+    '<div class="sub">versato '+eur(cost)+' · rendimento <span class="'+(pl>=0?'good':'bad')+'">'+eurS(pl)+' ('+pct(pp)+')</span>'+(est?' · ETF stimati':'')+'</div>';
+  if(tot>0&&ev>0&&bv>0){
+    h+='<div class="sbar" style="margin:10px 0 6px"><i style="width:'+(ev/tot*100).toFixed(2)+'%;background:#b86bff" title="ETF"></i><i style="width:'+(bv/tot*100).toFixed(2)+'%;background:#f2994a" title="Buoni postali"></i></div>'+
+      '<div class="sub" style="min-height:0"><span class="dot" style="background:#b86bff"></span> ETF '+Math.round(ev/tot*100)+'% &nbsp; <span class="dot" style="background:#f2994a"></span> Buoni postali '+Math.round(bv/tot*100)+'%</div>';
+  }
+  h+='</div>';
+  if(etf) h+='<div class="kpi"><div class="lbl">ETF · dossier</div><div class="val">'+eur(ev)+'</div><div class="sub">investito '+eur(ec)+' · <span class="'+(etf.pl>=0?'good':'bad')+'">'+eurS(etf.pl)+(ec?' ('+pct(etf.pl/ec*100)+')':'')+'</span></div></div>';
+  if(bf){
+    var nx=bf.first?bf.rows.filter(function(x){return x.b.d1===bf.first;}).reduce(function(s,x){return s+x.r.netMat;},0):0;
+    h+='<div class="kpi"><div class="lbl">Buoni postali</div><div class="val">'+eur(bv)+'</div><div class="sub">netto stimato · versato '+eur(bc)+'</div>'+
+      '<div class="sub" style="min-height:0">'+(bf.first?'prossima scadenza '+fd(bf.first)+' · ≈ '+eur(Math.round(nx))+' netti':'nessuna scadenza futura')+'</div></div>';
+  }
+  var pc=pacTotals(S.sec,thisYM,12,100000);
+  if(etf) h+='<div class="kpi"><div class="lbl">PAC · ultimi 12 mesi</div><div class="val">'+eur(pc.tot)+'</div><div class="sub">'+(pc.cnt?'media '+eur(pc.avg)+'/mese · '+pc.cnt+(pc.cnt===1?' acquisto':' acquisti'):'nessun acquisto PAC')+'</div></div>';
+  return h+'</div>';
+}
+
+// ===== Note sui movimenti =====
+function noteModal(id){
+  var t=S.tx.find(function(x){return x.id===id;});if(!t) return;
+  openModal('Nota · '+(shortDesc(t.s)||'movimento').slice(0,60),
+    '<p class="note" style="margin:0 0 8px">'+fd(t.d)+' · '+eur(t.m)+'</p>'+
+    '<label>Nota<textarea name="n" rows="4" maxlength="500" placeholder="es. conguaglio 2025, rimborso da…, spesa condivisa">'+esc(t.n||'')+'</textarea></label>'+
+    '<p class="note">La nota resta sul movimento, si può cercare dalla casella «Cerca…» e viaggia con il backup. Lasciala vuota per toglierla.</p>',
+    function(f){
+      var nn=String(f.get('n')||'').trim().slice(0,500);
+      if(nn===(t.n||'')) return;
+      t.n=nn;stamp(t);save();renderTxList();toast(nn?'Nota salvata':'Nota rimossa');
+    });
+}
+
+// ===== Regole applicate ai movimenti già caricati =====
+var RX={src:null,all:false};
+// elenco dei movimenti già presenti che la regola riclassificherebbe, raggruppati per serie (stessa categoria attuale e stesso importo)
+function rulePrevHtml(kw,catId){
+  var c=catById(catId),cn=c?c.n:'?';
+  if(!kwRegex(kw)) return '<p class="note" style="margin:0">Scrivi la parola chiave: qui compaiono i movimenti già caricati che la contengono, anche se hanno già una categoria.</p>';
+  var m=ruleMatches(S.tx,kw,catId),n=m.change.length+m.same;
+  if(!n) return '<p class="note" style="margin:0">Nessun movimento già caricato contiene questa parola: la regola vale per i prossimi import.</p>';
+  if(!m.change.length) return '<p class="note" style="margin:0">'+nf(n)+(n===1?' movimento già caricato contiene':' movimenti già caricati contengono')+' questa parola e '+(n===1?'è già':'sono già')+' in «'+esc(cn)+'»: niente da cambiare.</p>';
+  var shown=m.change.slice(0,300),unc=m.change.filter(function(t){return !t.c;}).length,groups=[],gi={};
+  shown.forEach(function(t){
+    var k=(t.c||'')+'|'+t.m;
+    if(gi[k]==null){gi[k]=groups.length;groups.push({c:t.c,m:t.m,rows:[]});}
+    groups[gi[k]].rows.push(t);
+  });
+  groups.sort(function(a,b){return b.rows.length-a.rows.length||(a.rows[0].d<b.rows[0].d?1:-1);});
+  var pre=function(t){return !t.c||RX.all||!!(RX.src&&RX.src.m===t.m);};
+  var open=shown.length<=8?' open':'';
+  function row(t){
+    var oc=catById(t.c);
+    return '<label class="rx"><input type="checkbox" name="rx" value="'+esc(t.id)+'" data-unc="'+(t.c?'':'1')+'" data-chg="rx-row"'+(pre(t)?' checked':'')+'><span class="num rxd0">'+fd(t.d)+'</span><span class="rxs" title="'+esc(t.s)+'">'+esc(shortDesc(t.s)||t.s)+'<span class="muted"> · ora: '+esc(oc?oc.n:'da categorizzare')+'</span></span><span class="num '+(t.m<0?'bad':'good')+'">'+eur(t.m)+'</span></label>';
+  }
+  var list=groups.map(function(g){
+    if(g.rows.length<2) return row(g.rows[0]);
+    var ds=g.rows.map(function(t){return t.d;}).sort(),oc=catById(g.c);
+    return '<details class="rg"'+open+'><summary><input type="checkbox" class="rgc" data-chg="rx-grp" aria-label="Seleziona tutta la serie"><span class="rxs"><b>'+g.rows.length+' × '+eur(g.m)+'</b><span class="muted"> · dal '+fd(ds[0])+' al '+fd(ds[ds.length-1])+' · ora: '+esc(oc?oc.n:'da categorizzare')+'</span></span></summary><div class="rgrows">'+g.rows.map(row).join('')+'</div></details>';
+  }).join('');
+  return '<div class="rxh"><div style="flex:1 1 100%"><b>'+nf(m.change.length)+(m.change.length===1?' movimento passerebbe':' movimenti passerebbero')+' a «'+esc(cn)+'»</b>'+(m.same?' <span class="muted">(altri '+nf(m.same)+' ci sono già)</span>':'')+'</div>'+
+    '<button type="button" class="btn sm" data-act="rx-all">Tutti</button><button type="button" class="btn sm" data-act="rx-none">Nessuno</button>'+(unc&&unc<m.change.length?'<button type="button" class="btn sm" data-act="rx-uncat">Solo senza categoria ('+unc+')</button>':'')+'</div>'+
+    '<p class="note" id="rxn" style="margin:0 0 6px"></p>'+
+    '<div class="rxl">'+list+'</div>'+(m.change.length>shown.length?'<p class="note">Mostrati i primi '+shown.length+' (i più recenti).</p>':'');
+}
+// allinea le spunte delle serie e il contatore a quelle dei singoli movimenti
+function rxSync(){
+  var f=$('#mform');if(!f) return;
+  var gs=f.querySelectorAll('details.rg'),i,j;
+  for(i=0;i<gs.length;i++){
+    var rows=gs[i].querySelectorAll('input[name="rx"]'),k=0;
+    for(j=0;j<rows.length;j++) if(rows[j].checked) k++;
+    var g=gs[i].querySelector('.rgc');g.checked=k===rows.length;g.indeterminate=k>0&&k<rows.length;
+  }
+  var all=f.querySelectorAll('input[name="rx"]'),on=f.querySelectorAll('input[name="rx"]:checked'),nn=$('#rxn');
+  if(nn) nn.textContent=nf(on.length)+' di '+nf(all.length)+' selezionati'+(f.querySelector('details.rg')?' · spunta una serie per riclassificarla tutta, aprila per vedere i singoli movimenti':'');
+}
+function rxSet(fn){
+  var l=document.querySelectorAll('#mform input[name="rx"]');
+  for(var i=0;i<l.length;i++) l[i].checked=!!fn(l[i]);
+  rxSync();
+}
+function rxGroup(el){
+  var d=el.closest('details');if(!d) return;
+  var l=d.querySelectorAll('input[name="rx"]');
+  for(var i=0;i<l.length;i++) l[i].checked=el.checked;
+  rxSync();
+}
+function refreshRulePrev(){
+  var f=$('#mform'),box=$('#rulePrev');if(!f||!box||!f.elements.k||!f.elements.c) return;
+  box.innerHTML=rulePrevHtml(f.elements.k.value,f.elements.c.value);rxSync();
+}
+function applyRuleChecked(f,catId){
+  var set=toSet(f.getAll('rx')),n=0;
+  S.tx.forEach(function(t){if(set[t.id]&&(t.c||null)!==(catId||null)){t.c=catId;stamp(t);n++;}});
+  return n;
+}
+// src: movimento da cui nasce la regola (le serie con lo stesso importo vengono preselezionate)
+function ruleModal(kw,catId,src){
+  RX={src:src||null,all:false};
   openModal('Nuova regola di categoria',
-    '<p class="note" style="margin-top:0">Se la descrizione contiene la parola (token intero; con * finale vale come inizio parola), il movimento va nella categoria scelta.</p>'+
-    '<label>Parola chiave<input name="k" value="'+esc(kw||'')+'" required></label>'+
-    '<label>Categoria<select name="c">'+withSel(catOptionsHtml(),catId)+'</select></label>'+
-    '<label class="chk"><input type="checkbox" name="apply" checked> Applica ai movimenti non ancora categorizzati</label>',
+    '<p class="note" style="margin-top:0">Se la descrizione contiene la parola (token intero; con * finale vale come inizio parola), il movimento va nella categoria scelta. Vale per i prossimi import e, se vuoi, anche per i movimenti già caricati.</p>'+
+    '<label>Parola chiave<input name="k" value="'+esc(kw||'')+'" required autocomplete="off" data-inp="rule-prev"></label>'+
+    '<label>Categoria<select name="c" data-chg="rule-prev">'+withSel(catOptionsHtml(),catId)+'</select></label>'+
+    '<div id="rulePrev" class="rprev">'+rulePrevHtml(kw,catId)+'</div>',
     function(f){
       var k=f.get('k').trim();
       if(!kwRegex(k)){toast('Parola chiave non valida');return false;}
       var r=stamp({id:'r'+uid(),k:k,c:f.get('c')});
       S.rules.unshift(r);
-      var n=0;
-      if(f.get('apply')){
-        var comp=compileRules([r]);
-        S.tx.forEach(function(t){if(!t.c&&categorize(t.s,comp)){t.c=r.c;stamp(t);n++;}});
-      }
-      save();render();toast('Regola creata'+(n?' · '+n+' movimenti aggiornati':''));
-    });
+      var n=applyRuleChecked(f,r.c);
+      save();render();toast('Regola creata'+(n?' · '+n+(n===1?' movimento aggiornato':' movimenti aggiornati'):''));
+    },{ok:'Crea regola'});
+  rxSync();
+}
+function ruleApplyModal(id){
+  var r=S.rules.find(function(x){return x.id===id;});if(!r) return;
+  var c=catById(r.c);
+  RX={src:null,all:true};
+  openModal('Applica la regola «'+r.k+'»',
+    '<p class="note" style="margin-top:0">Regola: <code>'+esc(r.k)+'</code> → <b>'+esc(c?c.n:'(categoria eliminata)')+'</b>. Scegli quali movimenti già caricati riclassificare.</p><div class="rprev">'+(c?rulePrevHtml(r.k,r.c):'<p class="note">La categoria di questa regola non esiste più.</p>')+'</div>',
+    function(f){
+      var n=applyRuleChecked(f,r.c);
+      save();render();toast(n?n+(n===1?' movimento aggiornato':' movimenti aggiornati'):'Nessun movimento modificato');
+    },{ok:'Applica'});
+  rxSync();
 }
 
 // ===== Import estratto conto =====
@@ -1511,7 +1826,7 @@ function impBody(){
   var head=I.rows[I.hdr]||[];
   function colOpts(sel,none){return '<option value="-1"'+(sel<0?' selected':'')+'>'+none+'</option>'+head.map(function(x,i){return '<option value="'+i+'"'+(i===sel?' selected':'')+'>'+esc((i+1)+'. '+String(x).slice(0,32))+'</option>';}).join('');}
   var m=I.map,res=impParse(),info=impInfo(res);
-  h+='<p class="muted" style="margin:0 0 8px;font-size:13px">Letto: '+esc(I.fname)+' · '+I.rows.length+' righe</p>'+(info?'<p class="note" style="margin:0 0 10px">'+info+'</p>':'')+
+  h+='<p class="muted" style="margin:0 0 8px;font-size:13px">Letto: '+esc(I.fname)+' · '+nf(I.rows.length)+' righe</p>'+(info?'<p class="note" style="margin:0 0 10px">'+info+'</p>':'')+
     '<div class="row2"><label>Riga intestazioni<input type="number" min="1" max="'+Math.min(I.rows.length,200)+'" name="c_hdr" value="'+(I.hdr+1)+'" data-chg="imp-hdr"></label>'+
     '<label>Colonna data<select name="c_date" data-chg="imp-map">'+colOpts(m.date,'— nessuna —')+'</select></label></div>'+
     '<div class="row2"><label>Colonna importo<select name="c_amount" data-chg="imp-map">'+colOpts(m.amount,'— usa Entrate/Uscite —')+'</select></label>'+
@@ -1602,11 +1917,11 @@ function impExtra(head,colOpts,res){
   return h;
 }
 function impSummary(res){
-  var h='<b>'+res.fresh.length+'</b> nuovi · '+res.dup+' già presenti';
-  if(res.blocked) h+=' (di cui '+res.blocked+' eliminati in precedenza: non tornano)';
-  if(impUpdateMode()&&res.exist.length) h+=' · '+res.exist.length+' riconosciuti, verranno aggiornati con categorie/competenza';
-  if(res.old) h+=' · '+res.old+' saltati perché nel periodo già importato ('+fd(res.lo)+' – '+fd(res.hi)+')';
-  return h+' · '+res.skipped+' righe scartate (intestazioni/totali)';
+  var h='<b>'+nf(res.fresh.length)+'</b> nuovi · '+nf(res.dup)+' già presenti';
+  if(res.blocked) h+=' (di cui '+nf(res.blocked)+' eliminati in precedenza: non tornano)';
+  if(impUpdateMode()&&res.exist.length) h+=' · '+nf(res.exist.length)+' riconosciuti, verranno aggiornati con categorie/competenza';
+  if(res.old) h+=' · '+nf(res.old)+' saltati perché nel periodo già importato ('+fd(res.lo)+' – '+fd(res.hi)+')';
+  return h+' · '+nf(res.skipped)+' righe scartate (intestazioni/totali)';
 }
 // foglio da leggere: il primo che contiene un'intestazione riconoscibile (data + importo)
 function pickSheet(wb){
@@ -1689,7 +2004,7 @@ function doImport(){
   applyOwnTransfers();
   var pairs=runTransfers();
   save();render();
-  toast((added?'Importati '+added+(added===1?' movimento':' movimenti'):'Nessun movimento nuovo')+(upd?' · '+upd+' aggiornati con le tue categorie/competenze':'')+(made?' · '+made+(made===1?' categoria creata':' categorie create'):'')+(learned?' · '+learned+(learned===1?' regola appresa':' regole apprese'):'')+(pairs?' · '+pairs+' giroconti/storni riconosciuti':'')+(anchored?' · saldo aggiornato':''));
+  toast((added?'Importati '+nf(added)+(added===1?' movimento':' movimenti'):'Nessun movimento nuovo')+(upd?' · '+nf(upd)+' aggiornati con le tue categorie/competenze':'')+(made?' · '+made+(made===1?' categoria creata':' categorie create'):'')+(learned?' · '+learned+(learned===1?' regola appresa':' regole apprese'):'')+(pairs?' · '+pairs+' giroconti/storni riconosciuti':'')+(anchored?' · saldo aggiornato':''));
   return true;
 }
 function acctMismatch(acc,mt){
@@ -1766,8 +2081,8 @@ async function impFile(el){
   }catch(err){toast('Lettura non riuscita: '+err.message);}
 }
 // ===== Investimenti =====
-function fmtQty(q){return q.toLocaleString('it-IT',{maximumFractionDigits:4});}
-function fmtPx(x){return x.toLocaleString('it-IT',{minimumFractionDigits:2,maximumFractionDigits:4});}
+function fmtQty(q){return fmtNum(q,0,4);}
+function fmtPx(x){return fmtNum(x,2,4);}
 function dossierInfo(accId){
   var secs=(S.sec||[]).filter(function(x){return !accId||x.a===accId;});
   if(!secs.length) return null;
@@ -1785,7 +2100,7 @@ function dossierInfo(accId){
 function viewInv(){
   var info=dossierInfo(null);
   var h=info?etfHtml(info):'<div class="toolbar"><h2 style="margin:0;font-size:17px">Investimenti · dossier ETF</h2><span class="grow"></span><button class="btn primary" data-act="sec-import">Importa movimenti dossier</button></div>'+'<div class="card"><div class="empty">Nessuna operazione. Scarica da Fineco «Movimenti dossier titoli» (.xls/.xlsx) e importalo qui: l’app calcola quote, prezzo medio di carico e valore. I prezzi attuali li inserisci tu.</div></div>';
-  return h+viewBfp();
+  return invRecap()+h+viewBfp();
 }
 function etfHtml(info){
   var h='<div class="toolbar"><h2 style="margin:0;font-size:17px">Investimenti · dossier ETF</h2><span class="grow"></span><button class="btn primary" data-act="sec-import">Importa movimenti dossier</button></div>';
@@ -1796,7 +2111,7 @@ function etfHtml(info){
   h+='<div class="grid kpis">'+
     '<div class="kpi"><div class="lbl">Valore attuale</div><div class="val">'+eur(info.value)+'</div><div class="sub">'+(est?'stima: dove manca il prezzo uso l’ultimo acquisto':'con i prezzi inseriti')+'</div></div>'+
     '<div class="kpi"><div class="lbl">Investito</div><div class="val">'+eur(info.cost)+'</div><div class="sub">costo delle quote in portafoglio</div></div>'+
-    '<div class="kpi"><div class="lbl">Plus / minus</div><div class="val '+(info.pl>=0?'good':'bad')+'">'+eurS(info.pl)+'</div><div class="sub">'+(plp>=0?'+':'')+plp.toFixed(1).replace('.',',')+'%'+(est?' (stima)':'')+'</div></div>'+
+    '<div class="kpi"><div class="lbl">Plus / minus</div><div class="val '+(info.pl>=0?'good':'bad')+'">'+eurS(info.pl)+'</div><div class="sub">'+(plp>=0?'+':'')+fmtNum(plp,1,1)+'%'+(est?' (stima)':'')+'</div></div>'+
     '<div class="kpi"><div class="lbl">Liquidità sul conto</div><div class="val">'+(cash==null?'—':eur(cash))+'</div><div class="sub">'+(cashAcc?esc(cashAcc.n):'')+'</div></div></div>';
   h+='<div class="card"><h2>Posizioni</h2>'+
     info.rows.map(function(r){
@@ -1804,9 +2119,9 @@ function etfHtml(info){
       return '<div class="pos"><div class="ph"><b>'+esc(r.name)+'</b><span class="muted" style="font-size:12px">'+esc(r.isin)+'</span></div><div class="pg">'+
         '<div><div class="l">Quote</div><div class="v">'+fmtQty(r.qty)+'</div></div>'+
         '<div><div class="l">PMC</div><div class="v">'+fmtPx(r.pmc)+'</div></div>'+
-        '<div><div class="l">Prezzo attuale</div><input inputmode="decimal" data-chg="px-set" data-isin="'+esc(r.isin)+'" value="'+(r.est?'':esc(String(r.price).replace('.',',')))+'" placeholder="'+fmtPx(r.price)+'" aria-label="Prezzo attuale '+esc(r.name)+'"><div class="note" style="margin:2px 0 0">'+(r.est?'ultimo acquisto '+fd(r.pxd):'inserito il '+fd(r.pxd))+'</div></div>'+
+        '<div><div class="l">Prezzo attuale</div><input inputmode="decimal" data-chg="px-set" data-isin="'+esc(r.isin)+'" value="'+(r.est?'':esc(fmtNum(r.price,0,4)))+'" placeholder="'+fmtPx(r.price)+'" aria-label="Prezzo attuale '+esc(r.name)+'"><div class="note" style="margin:2px 0 0">'+(r.est?'ultimo acquisto '+fd(r.pxd):'inserito il '+fd(r.pxd))+'</div></div>'+
         '<div><div class="l">Valore</div><div class="v">'+eur(r.value)+'</div></div>'+
-        '<div><div class="l">Plus/minus</div><div class="v '+cl+'">'+eurS(r.pl)+' <span style="font-size:12px">('+(pp>=0?'+':'')+pp.toFixed(1).replace('.',',')+'%)</span></div></div>'+
+        '<div><div class="l">Plus/minus</div><div class="v '+cl+'">'+eurS(r.pl)+' <span style="font-size:12px">('+(pp>=0?'+':'')+fmtNum(pp,1,1)+'%)</span></div></div>'+
         '</div></div>';
     }).join('')+'<p class="note">PMC = prezzo medio di carico. Scrivi il prezzo di oggi nella casella per avere valore e plus/minus aggiornati: non viene letto da nessuna fonte esterna.</p></div>';
   var months=[];for(var i=11;i>=0;i--) months.push(addMonths(thisYM,-i));
@@ -1843,7 +2158,7 @@ function importDossierRows(rows){
   S.people=S.people||[];
   if(r.holder&&S.people.indexOf(r.holder)<0) S.people.push(r.holder);
   save();render();
-  return 'Dossier: '+fresh.length+' operazioni nuove'+(r.items.length-fresh.length?' · '+(r.items.length-fresh.length)+' già presenti':'')+(r.skipped?' · '+r.skipped+' righe scartate':'');
+  return 'Dossier: '+nf(fresh.length)+' operazioni nuove'+(r.items.length-fresh.length?' · '+nf(r.items.length-fresh.length)+' già presenti':'')+(r.skipped?' · '+nf(r.skipped)+' righe scartate':'');
 }
 
 // ===== Buoni fruttiferi postali =====
@@ -1858,7 +2173,7 @@ function bfpSummary(T){
   });
   return o;
 }
-function fmtYrs(y){return y<1?Math.max(1,Math.round(y*12))+' mesi':y.toLocaleString('it-IT',{maximumFractionDigits:1})+' anni';}
+function fmtYrs(y){return y<1?Math.max(1,Math.round(y*12))+' mesi':fmtNum(y,0,1)+' anni';}
 function viewBfp(){
   var list=S.bfp||[];
   var h='<div class="toolbar" style="margin-top:22px"><h2 style="margin:0;font-size:17px">Buoni fruttiferi postali</h2><span class="grow"></span>'+
@@ -1881,7 +2196,7 @@ function viewBfp(){
         else if(r.yrs<1) pills+=' <span class="pill warn">scade entro 12 mesi</span>';
         if(sm.flags[b.id]) pills+=' <span class="pill warn" title="Il rendimento annuo si discosta da quello degli altri buoni dello stesso intestatario con scadenza vicina: verifica versato, date e importo a scadenza.">verifica rendimento</span>';
         return '<div class="bf"><div class="bi"><div class="bt"><b>'+(b.n?esc(b.n):'Buono')+'</b> · scade '+fd(b.d1)+' <span class="muted">('+(r.matured?'scaduto':fmtYrs(r.yrs))+')</span>'+pills+'</div>'+
-          '<div class="txs">sottoscritto '+fd(b.d0)+' · versato '+eur(b.v)+' → a scadenza '+eur(b.k)+' lordo'+(r.cagr!=null?' · rend. '+(r.cagr*100).toFixed(2).replace('.',',')+'%/anno':'')+(b.wh!==12.5?' · ritenuta '+fmtPct(b.wh)+'%':'')+'</div></div>'+
+          '<div class="txs">sottoscritto '+fd(b.d0)+' · versato '+eur(b.v)+' → a scadenza '+eur(b.k)+' lordo'+(r.cagr!=null?' · rend. '+fmtNum(r.cagr*100,2,2)+'%/anno':'')+(b.wh!==12.5?' · ritenuta '+fmtPct(b.wh)+'%':'')+'</div></div>'+
           '<div class="txa num" style="text-align:left">'+eur(Math.round(r.val))+' <span class="txs" style="font-weight:400">· netto '+eur(Math.round(r.net))+'</span></div>'+
           '<div style="white-space:nowrap;justify-self:end"><button class="btn sm" data-act="bfp-edit" data-id="'+esc(b.id)+'" title="Modifica">✎</button> <button class="btn sm danger" data-act="bfp-del" data-id="'+esc(b.id)+'" title="Elimina">🗑</button></div></div>';
       }).join('')+
@@ -1893,7 +2208,7 @@ function viewBfp(){
 function bfpModal(id){
   var b=id?S.bfp.find(function(x){return x.id===id;}):null,v=b||{h:'',n:'',d0:'',d1:'',v:0,k:0,wh:12.5};
   var hs=[];(S.bfp||[]).forEach(function(x){if(hs.indexOf(x.h)<0) hs.push(x.h);});
-  var cur=function(c){return c?(c/100).toFixed(2).replace('.',','):'';};
+  var cur=function(c){return c?fmtNum(c/100,2,2):'';};
   openModal(b?'Modifica buono':'Nuovo buono',
     '<div class="row2"><label>Intestatario<input name="h" list="bfpHolders" value="'+esc(v.h)+'" required autocomplete="off"></label><label>Serie / numero (opzionale)<input name="n" value="'+esc(v.n||'')+'" autocomplete="off"></label></div>'+
     '<datalist id="bfpHolders">'+hs.map(function(x){return '<option value="'+esc(x)+'">';}).join('')+'</datalist>'+
@@ -1956,7 +2271,7 @@ function importBfpWorkbook(wb){
 
 // ===== Bollette =====
 var UM={luce:'kWh',gas:'Smc',acqua:'m³'};
-function billTypes(){return S.cats.filter(function(c){return c.bol;});}
+function billTypes(){return sortCats(S.cats.filter(function(c){return c.bol;}));}
 function daysUntil(iso){return dayNum(iso)-dayNum(todayISO());}
 function viewBol(){
   var bt=billTypes(),yr=U.bills.anno,tp=U.bills.tipo;
@@ -1985,8 +2300,8 @@ function viewBol(){
       if(unit!=null&&pu) dl=delta(unit,pu,false).replace(' vs mese prec.',' vs prec.');
       else if(prev) dl=delta(b.imp,prev.imp,false).replace(' vs mese prec.',' vs prec.');
       return '<tr><td class="num">'+(b.p1?fd(b.p1)+' → ':'')+fd(b.p2||b.scad||'')+'</td><td>'+esc(c?c.n:'?')+'<div class="muted" style="font-size:12px">'+esc(b.forn||'')+'</div></td>'+
-        '<td class="right num">'+eur(b.imp)+'</td><td class="right num">'+(b.cons>0?b.cons.toLocaleString('it-IT')+' '+esc(b.um||''):'—')+'</td>'+
-        '<td class="right num">'+(unit!=null?unit.toLocaleString('it-IT',{minimumFractionDigits:3,maximumFractionDigits:3})+' €/'+esc(b.um||'u'):'—')+'</td>'+
+        '<td class="right num">'+eur(b.imp)+'</td><td class="right num">'+(b.cons>0?fmtNum(b.cons,0,3)+' '+esc(b.um||''):'—')+'</td>'+
+        '<td class="right num">'+(unit!=null?fmtNum(unit,3,3)+' €/'+esc(b.um||'u'):'—')+'</td>'+
         '<td style="font-size:12px">'+dl+'</td><td>'+(b.paid?'<span class="pill good">pagata</span>':'<span class="pill">da pagare</span>')+'</td>'+
         '<td class="right" style="white-space:nowrap"><button class="btn sm" data-act="bill-edit" data-id="'+esc(b.id)+'">✎</button> <button class="btn sm danger" data-act="bill-del" data-id="'+esc(b.id)+'">🗑</button></td></tr>';
     }).join('');
@@ -2021,8 +2336,8 @@ function billModal(id){
     '<div class="row2"><label>Tipo<select name="tipo">'+bt.map(function(c){return opt(c.id,c.n,v.tipo);}).join('')+'</select></label>'+
     '<label>Fornitore<input name="forn" value="'+esc(v.forn)+'"></label></div>'+
     '<div class="row2"><label>Periodo dal<input type="date" name="p1" value="'+esc(v.p1||'')+'"></label><label>Periodo al<input type="date" name="p2" value="'+esc(v.p2||'')+'"></label></div>'+
-    '<div class="row2"><label>Importo (€)<input name="imp" inputmode="decimal" value="'+(b?(v.imp/100).toFixed(2).replace('.',','):'')+'" required></label><label>Scadenza<input type="date" name="scad" value="'+esc(v.scad||'')+'"></label></div>'+
-    '<div class="row2"><label>Consumo (opzionale)<input name="cons" inputmode="decimal" value="'+(v.cons===''||v.cons==null?'':String(v.cons).replace('.',','))+'"></label><label>Unità (kWh, Smc, m³)<input name="um" value="'+esc(v.um||'')+'"></label></div>'+
+    '<div class="row2"><label>Importo (€)<input name="imp" inputmode="decimal" value="'+(b?fmtNum(v.imp/100,2,2):'')+'" required></label><label>Scadenza<input type="date" name="scad" value="'+esc(v.scad||'')+'"></label></div>'+
+    '<div class="row2"><label>Consumo (opzionale)<input name="cons" inputmode="decimal" value="'+(v.cons===''||v.cons==null?'':fmtNum(v.cons,0,3))+'"></label><label>Unità (kWh, Smc, m³)<input name="um" value="'+esc(v.um||'')+'"></label></div>'+
     '<label class="chk"><input type="checkbox" name="paid"'+(v.paid?' checked':'')+'> Già pagata</label>',
     function(f){
       var imp2=toCents(f.get('imp'));
@@ -2061,7 +2376,7 @@ function recModal(id){
   openModal(r?'Modifica ricorrenza':'Nuova ricorrenza',
     '<label>Nome<input name="n" value="'+esc(v.n)+'" required placeholder="es. Rata mutuo"></label>'+
     '<div class="row2"><label>Tipo<select name="dir"><option value="-1"'+(v.m<0?' selected':'')+'>Uscita</option><option value="1"'+(v.m>0?' selected':'')+'>Entrata</option></select></label>'+
-    '<label>Importo (€)<input name="imp" inputmode="decimal" value="'+(r?(Math.abs(v.m)/100).toFixed(2).replace('.',','):'')+'" required></label></div>'+
+    '<label>Importo (€)<input name="imp" inputmode="decimal" value="'+(r?fmtNum(Math.abs(v.m)/100,2,2):'')+'" required></label></div>'+
     '<div class="row2"><label>Giorno del mese<input type="number" name="day" min="1" max="31" value="'+v.day+'" required></label>'+
     '<label>Conto<select name="a">'+accs.map(function(a){return opt(a.id,a.n,v.a);}).join('')+'</select></label></div>'+
     '<label>Parola chiave nella descrizione (consigliata)<input name="kw" value="'+esc(v.kw||'')+'" placeholder="es. MUTUO"></label>'+
@@ -2098,7 +2413,7 @@ function interestFor(a){
   if(p){p.baseD=base.d;p.baseM=base.m;}
   return p;
 }
-function fmtPct(x){return (+x).toLocaleString('it-IT',{maximumFractionDigits:3});}
+function fmtPct(x){return fmtNum(+x,0,3);}
 function viewAcc(){
   var total=0,cards='';
   S.accounts.forEach(function(a){
@@ -2107,7 +2422,7 @@ function viewAcc(){
       bal=computeBalance(a,S.tx);
       var mine=S.tx.filter(function(t){return t.a===a.id;});
       var last=mine.reduce(function(m,t){return t.d>m?t.d:m;},'');
-      sub=mine.length+' movimenti'+(last?' · ultimo '+fd(last):'')+(a.anchor?' · saldo impostato il '+fd(a.anchor.d):'');
+      sub=nf(mine.length)+' movimenti'+(last?' · ultimo '+fd(last):'')+(a.anchor?' · saldo impostato il '+fd(a.anchor.d):'');
       btn='<button class="btn sm" data-act="acc-bal" data-id="'+esc(a.id)+'">Imposta saldo</button><button class="btn sm" data-act="acc-import" data-id="'+esc(a.id)+'">Importa movimenti</button>';
     }else{
       var sn=snapsOf(a.id),l=sn[0],p=sn[1];
@@ -2129,7 +2444,7 @@ function viewAcc(){
     var dos=a.inv?dossierInfo(a.id):null;
     if(dos) total+=dos.value;
     var dosHtml=dos?'<div class="note" style="margin:0">Dossier titoli: <b>'+eur(dos.value)+'</b> · investito '+eur(dos.cost)+' · <span class="'+(dos.pl>=0?'good':'bad')+'">'+eurS(dos.pl)+'</span></div>':'';
-    var intr=!ip&&a.rate>0&&bal>0?'<div class="note" style="margin:0">Interessi stimati al '+a.rate.toLocaleString('it-IT')+'% annuo: <b>'+eur(Math.round(bal*a.rate/100))+'</b>/anno · '+eur(Math.round(bal*a.rate/100/12))+'/mese</div>':'';
+    var intr=!ip&&a.rate>0&&bal>0?'<div class="note" style="margin:0">Interessi stimati al '+fmtNum(a.rate,0,3)+'% annuo: <b>'+eur(Math.round(bal*a.rate/100))+'</b>/anno · '+eur(Math.round(bal*a.rate/100/12))+'/mese</div>':'';
     cards+='<div class="card"><div class="muted" style="font-size:12px;text-transform:uppercase;letter-spacing:.04em">'+esc(a.bank||'')+'</div><div style="font-weight:600">'+esc(a.n)+'</div>'+
       '<div class="big">'+(bal==null?'<span class="muted" style="font-size:16px">saldo non impostato</span>':eur(bal))+'</div>'+(ip?'<div class="muted" style="font-size:12px;margin-top:-4px">saldo stimato oggi</div>':'')+'<div class="note" style="margin:0">'+sub+'</div>'+(ip?ipHtml:intr)+dosHtml+extra+'<div class="btns">'+btn+'</div></div>';
   });
@@ -2146,7 +2461,7 @@ function balModal(id,snapId){
   var cur=sn?sn.m:(a.mode==='mov'?computeBalance(a,S.tx):(snapsOf(id)[0]||{}).m);
   var ip=!sn?interestFor(a):null;
   openModal((sn?'Modifica saldo · ':(a.mode==='mov'?'Imposta saldo · ':'Aggiorna saldo · '))+a.n,
-    '<div class="row2"><label>Saldo (€)<input name="m" inputmode="decimal" value="'+(cur==null?'':(cur/100).toFixed(2).replace('.',','))+'" required></label>'+
+    '<div class="row2"><label>Saldo (€)<input name="m" inputmode="decimal" value="'+(cur==null?'':fmtNum(cur/100,2,2))+'" required></label>'+
     '<label>Alla data<input type="date" name="d" value="'+(sn?sn.d:todayISO())+'" required></label></div>'+
     (a.mode==='mov'?'<p class="note">Il saldo del conto verrà calcolato da questo valore sommando i movimenti successivi alla data indicata.</p>':'')+
     (ip?'<p class="note">Saldo stimato oggi con gli interessi maturati: <b>'+eur(ip.est)+'</b>. Inserisci qui il saldo reale dell’estratto o dell’home banking (anche dopo un accredito di interessi, un versamento o un prelievo): da quella data gli interessi vengono ricalcolati.</p>':''),
@@ -2243,7 +2558,7 @@ function patItemRow(r){
   var sub=[],neg=r.g==='pas';
   if(r.bank&&!r.dos) sub.push(esc(r.bank));
   if(r.est) sub.push('saldo stimato oggi, interessi compresi');
-  if(r.cost!=null) sub.push('investito '+eur(r.cost)+' · <span class="'+(r.pl>=0?'good':'bad')+'">'+eurS(r.pl)+(r.cost>0?' ('+(r.pl>=0?'+':'')+(r.pl/r.cost*100).toLocaleString('it-IT',{maximumFractionDigits:1})+'%)':'')+'</span>');
+  if(r.cost!=null) sub.push('investito '+eur(r.cost)+' · <span class="'+(r.pl>=0?'good':'bad')+'">'+eurS(r.pl)+(r.cost>0?' ('+(r.pl>=0?'+':'')+fmtNum(r.pl/r.cost*100,0,1)+'%)':'')+'</span>');
   if(r.gross!=null) sub.push(r.cnt+(r.cnt===1?' buono':' buoni')+' · lordo '+eur(r.gross)+' − imposta stimata '+eur(r.tax));
   if(r.man) sub.push('valutato al '+fd(r.d)+(r.stale?' <span class="pill warn">da aggiornare</span>':''));
   if(r.note) sub.push(esc(r.note));
@@ -2297,7 +2612,7 @@ function patModal(id){
   openModal(it?'Aggiorna voce':'Nuovo bene o debito',
     '<label>Tipo<select name="t">'+og('att','Beni')+og('pas','Debiti')+'</select></label>'+
     '<label>Nome<input name="n" value="'+esc(v.n)+'" required autocomplete="off" placeholder="es. Casa di residenza"></label>'+
-    '<div class="row2"><label>Valore (€)<input name="m" inputmode="decimal" value="'+(it?(v.m/100).toFixed(2).replace('.',','):'')+'" required></label>'+
+    '<div class="row2"><label>Valore (€)<input name="m" inputmode="decimal" value="'+(it?fmtNum(v.m/100,2,2):'')+'" required></label>'+
     '<label>Alla data<input type="date" name="d" value="'+esc(v.d)+'" required></label></div>'+
     '<label>Note (opzionale)<input name="note" value="'+esc(v.note||'')+'" autocomplete="off"></label>'+
     '<p class="note">Per i debiti inserisci il capitale ancora da restituire, come importo positivo: viene sottratto dal patrimonio. Aggiornalo quando cambia (ad esempio dopo qualche rata); per i beni usa una stima prudente del valore di mercato.</p>',
@@ -2318,15 +2633,15 @@ function viewSet(){
     S.accounts.map(function(a){return '<tr><td>'+esc(a.n)+'<div class="muted" style="font-size:12px">'+esc(a.bank||'')+(a.iban||a.num?' · …'+esc((a.iban||a.num).slice(-4)):'')+'</div></td><td><span class="pill">'+(a.mode==='mov'?'con movimenti':'solo saldo')+'</span></td><td class="muted">'+(a.rate>0?fmtPct(a.rate)+'%'+(a.cred?' · '+esc(CRED[a.cred]||''):''):'')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="set-acc-edit" data-id="'+esc(a.id)+'">✎</button> <button class="btn sm danger" data-act="set-acc-del" data-id="'+esc(a.id)+'">🗑</button></td></tr>';}).join('')+'</tbody></table></div></div>';
   h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Categorie e budget mensile</h2><span class="grow"></span><button class="btn" data-act="set-cat-add">+ Categoria</button></div><div class="scroll"><table><tbody>'+
     TYPES.map(function(t){
-      return S.cats.filter(function(c){return c.t===t;}).map(function(c){return '<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:'+c.col+';margin-right:8px"></span>'+esc(c.n)+(c.bol?' <span class="pill">bolletta</span>':'')+'</td><td class="muted">'+TL[t]+'</td><td class="right num">'+(c.b?eur(c.b):'—')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="set-cat-edit" data-id="'+esc(c.id)+'">✎</button> <button class="btn sm danger" data-act="set-cat-del" data-id="'+esc(c.id)+'">🗑</button></td></tr>';}).join('');
+      return sortCats(S.cats.filter(function(c){return c.t===t;})).map(function(c){return '<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:'+c.col+';margin-right:8px"></span>'+esc(c.n)+(c.bol?' <span class="pill">bolletta</span>':'')+'</td><td class="muted">'+TL[t]+'</td><td class="right num">'+(c.b?eur(c.b):'—')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="set-cat-edit" data-id="'+esc(c.id)+'">✎</button> <button class="btn sm danger" data-act="set-cat-del" data-id="'+esc(c.id)+'">🗑</button></td></tr>';}).join('');
     }).join('')+'</tbody></table></div><p class="note">Il budget compare come limite nelle barre della Panoramica. Giroconti e risparmio non contano come spesa.</p></div>';
-  h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Regole di categorizzazione ('+S.rules.length+')</h2><span class="grow"></span><button class="btn" data-act="rules-apply">Riapplica ai non categorizzati</button><button class="btn" data-act="rule-add">+ Regola</button></div>'+
+  h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Regole di categorizzazione ('+S.rules.length+')</h2><span class="grow"></span><button class="btn" data-act="rules-apply" title="Categorizza solo i movimenti senza categoria con tutte le regole">Riapplica ai non categorizzati</button><button class="btn" data-act="rule-add">+ Regola</button></div>'+
     '<p class="note" style="margin:0 0 8px">La prima regola che corrisponde vince; le nuove vanno in cima. Aggiungi anche il tuo nome come parola chiave per riconoscere i bonifici tra i tuoi conti (→ Giroconto).</p>'+
-    '<details><summary>Mostra regole</summary><div class="scroll"><table><tbody>'+S.rules.map(function(r){var c=catById(r.c);return '<tr><td><code>'+esc(r.k)+'</code></td><td>'+esc(c?c.n:'(categoria eliminata)')+'</td><td class="right"><button class="btn sm danger" data-act="rule-del" data-id="'+esc(r.id)+'">🗑</button></td></tr>';}).join('')+'</tbody></table></div></details></div>';
+    '<details><summary>Mostra regole</summary><div class="scroll"><table><tbody>'+S.rules.map(function(r){var c=catById(r.c);return '<tr><td><code>'+esc(r.k)+'</code></td><td>'+esc(c?c.n:'(categoria eliminata)')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="rule-apply" data-id="'+esc(r.id)+'" title="Applica questa regola ai movimenti già caricati">Applica…</button> <button class="btn sm danger" data-act="rule-del" data-id="'+esc(r.id)+'">🗑</button></td></tr>';}).join('')+'</tbody></table></div></details></div>';
   h+=impsCard();
   h+='<div class="card"><h2>Dati</h2><div class="toolbar"><button class="btn primary" data-act="export">Esporta backup (.json)</button><button class="btn" data-act="import-json">Importa / unisci backup</button><button class="btn" data-act="transfers">Rileva giroconti</button><span class="grow"></span><button class="btn danger" data-act="reset">Azzera tutto</button></div>'+
     '<p class="note">I dati stanno nel browser di questo dispositivo (localStorage) e non sono mai inviati da nessuna parte. Per allinearvi in due: uno esporta, l’altro «Importa / unisci» — i movimenti già presenti non si duplicano e vince la modifica più recente. Importare un backup non cancella nulla.</p>'+
-    '<p class="note">'+S.tx.length+' movimenti · '+S.bills.length+' bollette · '+S.rec.length+' ricorrenze · '+(S.sec||[]).length+' operazioni titoli · '+(S.bfp||[]).length+' buoni postali · '+(S.pat||[]).length+' beni/debiti · '+(S.pats||[]).length+' punti di storico patrimonio</p></div>';
+    '<p class="note">'+nf(S.tx.length)+' movimenti · '+nf(S.bills.length)+' bollette · '+nf(S.rec.length)+' ricorrenze · '+nf((S.sec||[]).length)+' operazioni titoli · '+nf((S.bfp||[]).length)+' buoni postali · '+nf((S.pat||[]).length)+' beni/debiti · '+nf((S.pats||[]).length)+' punti di storico patrimonio</p></div>';
   return h;
 }
 function accModal(id){
@@ -2334,9 +2649,9 @@ function accModal(id){
   openModal(a?'Modifica conto':'Nuovo conto',
     '<label>Nome<input name="n" value="'+esc(v.n)+'" required></label><label>Banca<input name="bank" value="'+esc(v.bank||'')+'"></label>'+
     '<div class="row2"><label>Modalità<select name="mode">'+opt('mov','Con movimenti (import)',v.mode)+opt('saldo','Solo saldo (aggiornamento manuale)',v.mode)+'</select></label>'+
-    '<label>Tasso annuo lordo % (opzionale)<input name="rate" inputmode="decimal" value="'+(v.rate||'')+'"></label></div>'+
+    '<label>Tasso annuo lordo % (opzionale)<input name="rate" inputmode="decimal" value="'+(v.rate?fmtNum(v.rate,0,3):'')+'"></label></div>'+
     '<div class="row2"><label>Accredito interessi<select name="cred">'+opt('','Nessuna stima',v.cred||'')+Object.keys(CRED).map(function(k){return opt(k,CRED[k],v.cred||'');}).join('')+'</select></label>'+
-    '<label>Ritenuta sugli interessi %<input name="wh" inputmode="decimal" value="'+(v.wh==null?26:v.wh)+'"></label></div>'+
+    '<label>Ritenuta sugli interessi %<input name="wh" inputmode="decimal" value="'+fmtNum(v.wh==null?26:v.wh,0,3)+'"></label></div>'+
     '<label>IBAN (serve a riconoscere file e giroconti)<input name="iban" value="'+esc(v.iban||'')+'" placeholder="IT…" autocomplete="off"></label>'+
     '<label>N. conto (alternativa all’IBAN, es. dagli estratti Fineco)<input name="num" value="'+esc(v.num||'')+'" inputmode="numeric" autocomplete="off"></label>'+
     '<label class="chk"><input type="checkbox" name="inv"'+(v.inv?' checked':'')+'> Conto di risparmio/investimento: i versamenti diventano «Risparmio / PAC»</label>',
@@ -2352,7 +2667,7 @@ function catModal(id){
   openModal(c?'Modifica categoria':'Nuova categoria',
     '<label>Nome<input name="n" value="'+esc(v.n)+'" required></label>'+
     '<div class="row2"><label>Tipo<select name="t">'+TYPES.map(function(t){return opt(t,TL[t],v.t);}).join('')+'</select></label>'+
-    '<label>Budget mensile (€, opzionale)<input name="b" inputmode="decimal" value="'+(v.b?(v.b/100).toFixed(2).replace('.',','):'')+'"></label></div>'+
+    '<label>Budget mensile (€, opzionale)<input name="b" inputmode="decimal" value="'+(v.b?fmtNum(v.b/100,2,2):'')+'"></label></div>'+
     '<label class="chk"><input type="checkbox" name="bol"'+(v.bol?' checked':'')+'> È una bolletta (compare nella scheda Bollette)</label>',
     function(f){
       var o=c||{id:'k'+uid(),col:PALETTE[S.cats.length%PALETTE.length]};
@@ -2393,6 +2708,8 @@ function exportJSON(){
 // ===== Eventi =====
 var H={
   tab:function(el){U.tab=el.dataset.tab;render();window.scrollTo(0,0);},
+  'pm-cell':function(el){U.mv=mvDefaults();U.mv.month=el.dataset.ym;U.mv.cat=el.dataset.cat;U.mv.acct=U.pm.acct;U.mv.cash=U.pm.cash;U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
+  'pm-month':function(el){U.month=el.dataset.ym;U.acct=U.pm.acct;U.tab='home';render();window.scrollTo(0,0);},
   'pat-add':function(){patModal();},
   'pat-edit':function(el){patModal(el.dataset.id);},
   'pat-del':function(el){var it=S.pat.find(function(x){return x.id===el.dataset.id;});if(it&&confirm('Eliminare «'+it.n+'»?')){removeItem('pat',it.id);render();}},
@@ -2403,6 +2720,11 @@ var H={
   'mv-more':function(){U.mv.limit+=200;renderTxList();},
   'tx-add':function(){txModal();},
   'tx-edit':function(el){txModal(el.dataset.id);},
+  'tx-note':function(el){noteModal(el.dataset.id);},
+  'rule-apply':function(el){ruleApplyModal(el.dataset.id);},
+  'rx-all':function(){rxSet(function(){return true;});},
+  'rx-none':function(){rxSet(function(){return false;});},
+  'rx-uncat':function(){rxSet(function(c){return c.dataset.unc==='1';});},
   'tx-al':function(el){alModal(el.dataset.id);},
   'mv-sort':function(el){
     var k=el.dataset.k,f=U.mv;
@@ -2423,7 +2745,7 @@ var H={
   'imp-undo':function(el){
     var b=S.imps.find(function(x){return x.id===el.dataset.id;});if(!b) return;
     var n=S.tx.filter(function(t){return t.b===b.id;}).length;
-    if(!confirm('Annullare l’importazione «'+(b.f||'estratto')+'»?\nVerranno rimossi '+n+' movimenti (anche se nel frattempo li hai ricategorizzati) e ripristinati IBAN e saldo letti da quel file. Potrai reimportare il file.')) return;
+    if(!confirm('Annullare l’importazione «'+(b.f||'estratto')+'»?\nVerranno rimossi '+nf(n)+' movimenti (anche se nel frattempo li hai ricategorizzati) e ripristinati IBAN e saldo letti da quel file. Potrai reimportare il file.')) return;
     var r=undoBatch(b.id);U.sel={};render();toast('Importazione annullata · '+r+' movimenti rimossi');
   },
   'tx-import':function(){importModal();},
@@ -2439,7 +2761,7 @@ var H={
     S.sec=[];S.px={};save();render();
   },
   'tx-del':function(el){if(!confirm('Eliminare il movimento?')) return;removeItem('tx',el.dataset.id);renderTxList();},
-  'tx-rule':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;});if(t) ruleModal(suggestKw(shortDesc(t.s)),t.c);},
+  'tx-rule':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;});if(t) ruleModal(suggestKw(shortDesc(t.s)),t.c,t);},
   'bill-add':function(){billModal();},
   'bill-edit':function(el){billModal(el.dataset.id);},
   'bill-del':function(el){if(!confirm('Eliminare la bolletta?')) return;removeItem('bills',el.dataset.id);render();},
@@ -2456,7 +2778,7 @@ var H={
   'set-acc-del':function(el){
     var a=acctById(el.dataset.id);if(!a) return;
     var n=S.tx.filter(function(t){return t.a===a.id;}).length;
-    if(!confirm('Eliminare «'+a.n+'»'+(n?' e i suoi '+n+' movimenti':'')+'?')) return;
+    if(!confirm('Eliminare «'+a.n+'»'+(n?' e i suoi '+nf(n)+' movimenti':'')+'?')) return;
     S.tx.filter(function(t){return t.a===a.id;}).forEach(function(t){S.del[t.id]=Date.now();});
     S.snaps.filter(function(t){return t.a===a.id;}).forEach(function(t){S.del[t.id]=Date.now();});
     S.tx=S.tx.filter(function(t){return t.a!==a.id;});S.snaps=S.snaps.filter(function(t){return t.a!==a.id;});
@@ -2494,6 +2816,12 @@ var H={
   }
 };
 var CH={
+  'pm-range':function(el){U.pm.range=el.value;render();},
+  'pm-acct':function(el){U.pm.acct=el.value;render();},
+  'pm-comp':function(el){U.pm.cash=!el.checked;render();},
+  'rule-prev':function(){refreshRulePrev();},
+  'rx-grp':function(el){rxGroup(el);},
+  'rx-row':function(){rxSync();},
   'home-month':function(el){if(/^\d{4}-\d{2}$/.test(el.value)){U.month=el.value;render();}},
   'home-acct':function(el){U.acct=el.value;render();},
   'mv-acct':function(el){U.mv.acct=el.value;mvReset();},
@@ -2512,10 +2840,10 @@ var CH={
     var v=el.value;el.value='';if(!v) return;
     var ids=Object.keys(U.sel);if(!ids.length) return;
     var cid=v==='__none'?null:v,c=cid&&catById(cid);
-    if(!confirm('Assegnare «'+(c?c.n:'da categorizzare')+'» a '+ids.length+(ids.length===1?' movimento?':' movimenti?'))) return;
+    if(!confirm('Assegnare «'+(c?c.n:'da categorizzare')+'» a '+nf(ids.length)+(ids.length===1?' movimento?':' movimenti?'))) return;
     var set=toSet(ids);
     S.tx.forEach(function(t){if(set[t.id]){t.c=cid;stamp(t);}});
-    save();renderTxList();toast('Categoria aggiornata su '+ids.length+(ids.length===1?' movimento':' movimenti'));
+    save();renderTxList();toast('Categoria aggiornata su '+nf(ids.length)+(ids.length===1?' movimento':' movimenti'));
   },
   'al-gen':function(){alRegen();},
   'al-sum':function(){alSumText();},
@@ -2554,6 +2882,7 @@ document.addEventListener('change',function(e){
 });
 var qTimer=null;
 document.addEventListener('input',function(e){
+  if(e.target.closest&&e.target.closest('[data-inp="rule-prev"]')){refreshRulePrev();return;}
   var el=e.target.closest('[data-inp="mv-q"]');if(!el) return;
   clearTimeout(qTimer);qTimer=setTimeout(function(){U.mv.q=el.value;mvReset();},180);
 });
