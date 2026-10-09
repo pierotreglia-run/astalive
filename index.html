@@ -294,10 +294,8 @@ input[readonly]:focus{outline:0}
 .gdet>summary::after{content:'▸';margin-left:auto;color:var(--muted)}
 .gdet[open]>summary::after{content:'▾'}
 .gdet[open]>summary{margin-bottom:10px}
+.verdict{margin:0 0 12px;font-size:14px;line-height:1.45}
 .pm th:first-child.wl,.pm td:first-child.wl{white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25}
-details.pmbr{margin-top:12px}
-details.pmbr>summary{cursor:pointer;color:var(--accent);font-size:13px}
-details.pmbr[open]>summary{margin-bottom:8px}
 
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .acard{padding:0;overflow:hidden}
@@ -2303,7 +2301,7 @@ function fixUI(){
   if(b.tipo&&!catById(b.tipo)) b.tipo='';
   if(b.anno&&!/^\d{4}$/.test(String(b.anno))) b.anno='';
   if(!U.sel||typeof U.sel!=='object') U.sel={};
-  U.gopen=!!U.gopen;U.pmbr=!!U.pmbr;
+  U.gopen=!!U.gopen;
 }
 // nomi accessibili per i controlli che non hanno un'etichetta propria
 var ARIA={'home-acct':'Conto','mv-acct':'Conto','pm-acct':'Conto','mv-cat':'Categoria','mv-batch':'Importazione','bills-tipo':'Tipo di bolletta','bills-anno':'Anno','pm-range':'Periodo','pm-sort':'Ordina le categorie per','home-month':'Mese','mv-month':'Mese (vuoto = tutti)','mv-q':'Cerca nei movimenti','mv-sortsel':'Ordina per','bulk-cat':'Assegna una categoria ai selezionati','mv-selall':'Seleziona tutti i movimenti'};
@@ -2614,50 +2612,55 @@ function viewPm(){
     '<td class="tc '+(tot(dif)>=0?'good':'bad')+'">'+(tot(dif)>0?'+':'')+fmt0(tot(dif))+'</td><td class="ta '+(aEnt-aUsc>=0?'good':'bad')+'">'+(aEnt-aUsc>0?'+':'')+fmt0(aEnt-aUsc)+'</td></tr>';
   if(tot(M.rsp)||tot(M.tit)) body+=sec('Risparmio / PAC')+catRows(M.risp,'risparmio')+(tot(M.tit)?'<tr><td title="Acquisti di titoli (ETF, azioni…) dal dossier: sono risparmio, non una spesa. In parte coincidono con il PAC che arriva sul conto di investimento, quindi non vanno sommati alle righe sopra."><span class="dot" style="background:#b86bff"></span> Titoli acquistati (dossier)</td>'+cells(M.tit,{noheat:true})+'</tr>':'');
   if(tot(M.gin)||tot(M.gout)) body+=sec('Giroconti · non inclusi nei totali')+'<tr><td>Arrivati da altri conti</td>'+cells(M.gin,{noheat:true})+'</tr><tr><td>Usciti verso altri conti</td>'+cells(M.gout,{noheat:true})+'</tr>';
-  var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl),bnote='';
+  var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl),bcard='';
   if(bs){
-    var sgn=function(v){return (v>0?'+':'')+fmt0(v);},nz=function(arr){return arr.map(function(v){return v==null?0:v;});},
-      vv=nz(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=nz(bs.bnd),qq=nz(bs.esc),dd=bs.end.map(function(e,i){return e==null?0:e-bs.start[i];}),
-      avgOf=function(arr){return avgM.reduce(function(x,ym){return x+(arr[pos[ym]]||0);},0)/na;},
+    var sgn=function(v){return (v>0?'+':'')+fmt0(v);},
+      nz=function(arr){return arr.map(function(v){return v==null?0:v;});},
+      cc=function(ym){return (ym===thisYM?' cur':'')+(ym>thisYM?' fut':'');},
       cls=function(v){return v>0?'good':v<0?'bad':'';},
-      cc=function(ym){return (ym===thisYM?' cur':'')+(ym>thisYM?' fut':'');};
-    var cellsB=function(arr,kind){
-      return months.map(function(ym,i){
-        var v=bs[kind==='s'?'start':'vari'][i]==null?null:arr[i];
-        if(v==null||(kind==='m'&&!v)) return '<td class="pmz'+cc(ym)+'">–</td>';
-        if(kind==='s') return '<td class="'+cc(ym).trim()+'">'+fmt0(v)+'</td>';
-        if(kind==='m') return '<td class="muted'+cc(ym)+'">'+fmt0(v)+'</td>';
-        return '<td class="'+cls(v)+cc(ym)+'">'+sgn(v)+'</td>';
+      vv=nz(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=nz(bs.bnd),qq=nz(bs.esc),
+      from=mlabel(months[0]).replace(/ \d+$/,''),
+      vTot=tot(vv),mTot=tot(mm),bTot=tot(bb),qTot=tot(qq),lastI=-1;
+    bs.start.forEach(function(v,i){if(v!=null) lastI=i;});
+    // una riga del «conto»: label, valori per mese; o = {neg, color, bold, muted, sum, click, tip}
+    var line=function(label,arr,o){
+      var t=0,tds=months.map(function(ym,i){
+        if(bs.start[i]==null) return '<td class="pmz'+cc(ym)+'">–</td>';
+        var v=arr[i]*(o.neg?-1:1);t+=v;
+        if(!v&&!o.bold) return '<td class="pmz'+cc(ym)+'">–</td>';
+        var k=(o.color?cls(v):o.muted?'muted':'')+cc(ym)+(o.click&&v?' pmc':''),
+          tt=o.click&&v?(function(a){return ' data-act="pm-cell" data-ym="'+ym+'" data-cat="__giro" tabindex="-1" aria-label="'+a+'" title="'+a+'"';})(esc(label)+' · '+esc(mlabel(ym))+': apri i giroconti del mese'):'';
+        return '<td class="'+k.trim()+'"'+tt+'>'+(o.plain?fmt0(v):sgn(v))+'</td>';
       }).join('');
+      return '<tr'+(o.bold?' class="tot"':'')+(o.tip?' title="'+esc(o.tip)+'"':'')+'><td class="'+(o.muted?'muted ':'')+'wl">'+label+'</td>'+tds+
+        (o.sum?'<td class="tc'+(o.color?' '+cls(t):'')+'">'+(t?sgn(t):'–')+'</td>':'<td class="tc pmz">–</td>')+'</tr>';
     };
-    var from=mlabel(months[0]).replace(/ \d+$/,''),vTot=tot(vv),mTot=tot(mm);
-    body+='<tr class="sec"><td class="wl">Stiamo risparmiando? · saldo dei conti</td><td colspan="'+(nc+2)+'"></td></tr>'+
-      '<tr class="tot" title="Quanto c’è sui conti il primo giorno del mese"><td class="wl">Saldo a inizio mese</td>'+cellsB(bs.start,'s')+'<td class="tc pmz">–</td><td class="ta pmz">–</td></tr>'+
-      '<tr title="Entrate − spese davvero incassate e pagate nel mese, senza giroconti con conti non inclusi né operazioni straordinarie (es. vendita casa). Se è negativo stai intaccando i risparmi."><td class="wl">Risparmiato nel mese</td>'+cellsB(vv,'v')+'<td class="tc '+cls(vTot)+'">'+sgn(vTot)+'</td><td class="ta '+cls(avgOf(vv))+'">'+sgn(avgOf(vv))+'</td></tr>'+
-      '<tr class="tot" title="Somma di quanto risparmiato (o intaccato) mese dopo mese"><td class="wl">Progressivo da '+esc(from)+'</td>'+cellsB(bs.prog,'v')+'<td class="tc pmz">–</td><td class="ta pmz">–</td></tr>'+
-      (mTot?'<tr title="Parte del risparmio che è finita in titoli, PAC o polizze: non è sul conto ma è comunque vostra"><td class="muted wl">di cui in titoli / PAC</td>'+cellsB(mm,'m')+'<td class="tc muted">'+fmt0(mTot)+'</td><td class="ta muted">'+fmt0(avgOf(mm))+'</td></tr>':'');
-    var rowB=function(label,arr,strong,tip){
-      var t=tot(arr);
-      return '<tr'+(strong?' class="tot"':'')+(tip?' title="'+esc(tip)+'"':'')+'><td class="'+(strong?'':'muted ')+'wl">'+label+'</td>'+months.map(function(ym,i){
-        var v=bs.start[i]==null?null:arr[i];
-        return v==null||(!v&&!strong)?'<td class="pmz'+cc(ym)+'">–</td>':'<td class="'+(strong?'':'muted')+cc(ym)+'">'+(strong&&!v?'0':sgn(v))+'</td>';
-      }).join('')+'<td class="tc'+(strong?'':' muted')+'">'+(t||strong?sgn(t):'–')+'</td></tr>';
-    };
-    var hd='<tr><th class="wl">Da dove viene la variazione del saldo</th>'+months.map(function(ym){return '<th class="'+cc(ym).trim()+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></th>';}).join('')+'<th class="tc">Totale</th></tr>';
-    var bridge='<details class="pmbr" data-tg="pmbr"'+(U.pmbr?' open':'')+'><summary>Perché il saldo sale (o scende) diversamente? Mostra il dettaglio</summary><div class="scroll"><table class="pm pmx"><thead>'+hd+'</thead><tbody>'+
-      rowB('Risparmiato nel mese',vv,false)+
-      rowB('meno: messo in titoli / PAC',mm.map(function(v){return -v;}),false,'Soldi usciti dal conto per titoli, PAC o polizze: restano vostri ma non sono più sul conto')+
-      rowB('più: arrivato da conti non inclusi',bb,false,'Giroconti da/verso conti che non sono in questo calcolo (es. un libretto): fanno cambiare il saldo ma non sono risparmio del mese')+
-      rowB('più: operazioni straordinarie (es. casa)',qq,false,'Operazioni «escluse dai conti», come vendita o acquisto di una casa: fanno cambiare il saldo ma non sono entrate né spese')+
-      rowB('= Variazione del saldo sui conti',dd,true,'Saldo a fine mese − saldo a inizio mese')+
-      '</tbody></table></div></details>';
-    bnote=bridge+'<p class="note"><b>Saldo dei conti.</b> Conti inclusi: '+bs.used.map(function(u){return esc(u.n);}).join(', ')+'.'+
-      (bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return esc(u.n)+' ('+esc(u.why.replace(/(\d{4})-(\d{2})-(\d{2})/,'$3/$2/$1'))+')';}).join(', ')+' — per includerli imposta un loro saldo a una data precedente al primo mese mostrato.':'')+
-      ' «Risparmiato» segue i soldi davvero entrati e usciti (data di pagamento), quindi con «per competenza» può differire dalla Differenza qui sopra. Il mese in corso arriva a oggi.</p>';
+    var hd='<tr><th class="wl">Soldi sui conti</th>'+months.map(function(ym){return '<th class="'+cc(ym).trim()+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></th>';}).join('')+'<th class="tc">Totale</th></tr>';
+    var ledger=
+      line('Saldo a inizio mese',bs.start,{bold:true,plain:true,tip:'Quanto c’è sui conti il primo giorno del mese'})+
+      line('+ Entrate − spese',vv,{color:true,sum:true,tip:'Quanto avete incassato meno quanto avete speso nel mese (soldi veri, data di pagamento), senza giroconti e operazioni straordinarie. Se è negativo si intaccano i risparmi.'})+
+      line('− Messo in titoli / PAC',mm,{neg:true,muted:true,sum:true,tip:'Soldi usciti dal conto per titoli, PAC o polizze: restano vostri, ma non sono più sul conto'})+
+      line('+ Giroconti da conti non inclusi',bb,{muted:true,sum:true,click:true,tip:'Soldi arrivati da (o andati verso) conti che non sono in questo calcolo, per esempio un libretto: fanno salire il saldo ma non sono risparmio del mese. Clicca per vedere i giroconti.'})+
+      line('+ Operazioni straordinarie (es. casa)',qq,{muted:true,sum:true,tip:'Operazioni «escluse dai conti», come vendita o acquisto di una casa: cambiano il saldo ma non sono entrate né spese'})+
+      line('= Saldo a fine mese',bs.end,{bold:true,plain:true,tip:'È anche il saldo a inizio del mese dopo'})+
+      line('Risparmiato da '+esc(from)+' (progressivo)',bs.prog,{bold:true,color:true,tip:'Somma di «Entrate − spese» mese dopo mese: se sale state mettendo da parte, se scende state usando i risparmi'});
+    var upto=lastI>=0&&months[lastI]===thisYM?'a oggi':'fino a '+mlabel(months[Math.max(lastI,0)]),
+      verdict='<p class="verdict"><b>Da '+esc(from)+' '+upto+' '+(vTot>=0?'le entrate hanno superato le spese di '+fmt0(vTot)+' € in totale: state mettendo da parte.':'le spese hanno superato le entrate di '+fmt0(-vTot)+' € in totale: state usando i risparmi.')+'</b>';
+    var why=[],dTot=lastI>=0?bs.end[lastI]-bs.start[0]:0;
+    if(bTot) why.push('sono '+(bTot>0?'arrivati ':'andati ')+fmt0(Math.abs(bTot))+' € '+(bTot>0?'da':'verso')+' conti non inclusi (giroconti)');
+    if(qTot) why.push('sono '+(qTot>0?'entrati ':'usciti ')+fmt0(Math.abs(qTot))+' € di operazioni straordinarie (es. casa)');
+    if(mTot) why.push('sono usciti '+fmt0(mTot)+' € per titoli/PAC (restano vostri, ma non sono più sul conto)');
+    if(lastI>=0) verdict+=' Il saldo dei conti è passato da '+fmt0(bs.start[0])+' € a '+fmt0(bs.end[lastI])+' € ('+sgn(dTot)+' €)'+(why.length?', che non coincide con quel risultato perché '+(why.length>1?why.slice(0,-1).join(', ')+' e '+why[why.length-1]:why[0]):', cioè lo stesso risultato')+'.';
+    verdict+='</p>';
+    bcard='<div class="card"><h2>Stiamo risparmiando? · saldo dei conti mese per mese</h2>'+verdict+
+      '<div class="scroll"><table class="pm pmx"><thead>'+hd+'</thead><tbody>'+ledger+'</tbody></table></div>'+
+      '<p class="note">Si legge in colonna: saldo a inizio mese, più o meno ciò che è successo, uguale saldo a fine mese. Qui contano i soldi veri (data di pagamento), quindi i numeri possono differire dalla «Differenza» della tabella sopra, che con «per competenza» ripartisce alcune spese. Conti inclusi: '+bs.used.map(function(u){return esc(u.n);}).join(', ')+'.'+
+      (bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return esc(u.n)+' ('+esc(u.why.replace(/(\d{4})-(\d{2})-(\d{2})/,'$3/$2/$1'))+')';}).join(', ')+' — per includerli imposta un loro saldo a una data precedente al primo mese mostrato.':'')+' Il mese in corso arriva a oggi.</p></div>';
   }
-  h+='<div class="card"><h2>Categorie per mese · '+(P.cash?'per data di pagamento':'per competenza')+'</h2><div class="scroll"><table class="pm"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+bnote+
+  h+='<div class="card"><h2>Categorie per mese · '+(P.cash?'per data di pagamento':'per competenza')+'</h2><div class="scroll"><table class="pm"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
     (Mcut&&Mcut.count?'<p class="note">La tabella parte da '+esc(mlabel(months[0]))+', il primo mese con movimenti caricati. Restano fuori '+nf(Mcut.count)+(Mcut.count===1?' quota':' quote')+' di competenza di mesi precedenti (spese ripartite all’indietro).</p>':'')+
     '<p class="note">Importi in euro, arrotondati. Clicca un importo per vedere i movimenti di quel mese e categoria; clicca il mese per aprirne la panoramica (quello in corso è evidenziato in azzurro). Le celle rosse superano il budget mensile della categoria (impostabile in Impostazioni). I giroconti (soldi spostati tra conti) e i movimenti esclusi non entrano nei totali: i giroconti li trovi in fondo alla tabella e, con la quadratura del saldo, nella Panoramica. La media usa i mesi completi, dal primo mese con dati. Un importo anomalo (es. l’acquisto della casa) falsa totali e medie: clicca la cella, seleziona quei movimenti e assegnali a una categoria di tipo «Escluso dai conti».</p></div>';
+  h+=bcard;
   return h;
 }
 
