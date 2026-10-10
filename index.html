@@ -1841,6 +1841,8 @@ function accBalOn(acc,txs,snaps,ymd){
 function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
   if(!months||!months.length) return null;
   var thisYM=T.slice(0,7),d0=isoAdd(months[0]+'-01',-1),used=[],skipped=[];
+  // saldo a fine giornata; senza saldo di riferimento = somma dei movimenti (saldo di partenza sconosciuto, ma le variazioni sono giuste)
+  function balOf(u,ymd){if(!u.noRef) return accBalOn(u.a,txs,u.sn,ymd)||0;var b=0;(txs||[]).forEach(function(t){if(t&&t.a===u.a.id&&t.d<=ymd) b+=t.m;});return b;}
   (accts||[]).forEach(function(a){
     if(!a) return;
     var sn=snapsOf?snapsOf(a.id):[];
@@ -1848,15 +1850,15 @@ function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
     // e ciò che arriva da lì (o ci va) compare tra i giroconti da conti non inclusi
     if(a.mode==='saldo'){skipped.push({id:a.id,n:a.n,why:'solo saldo, senza movimenti: ciò che passa da o verso questo conto compare tra i giroconti da conti non inclusi',k:'saldo'});return;}
     if(accBalOn(a,txs,sn,d0)!=null) used.push({a:a,sn:sn});
-    else skipped.push({id:a.id,n:a.n,why:'manca il saldo di riferimento',k:'ref'});
+    else used.push({a:a,sn:sn,noRef:true});   // senza saldo di riferimento: entrate, spese e gestione ordinaria non dipendono dal livello del saldo, quindi il conto conta lo stesso
   });
   if(!used.length) return null;
   var ids={};used.forEach(function(u){ids[u.a.id]=1;});
-  var o={months:months,start:[],end:[],tit:[],sv:[],bnd:[],esc:[],vari:[],prog:[],used:used.map(function(u){return {id:u.a.id,n:u.a.n};}),skipped:skipped},run=0;
+  var o={months:months,start:[],end:[],tit:[],sv:[],bnd:[],esc:[],vari:[],prog:[],used:used.map(function(u){return {id:u.a.id,n:u.a.n,noRef:!!u.noRef};}),skipped:skipped},run=0;
   months.forEach(function(ym){
     if(ym>thisYM){o.start.push(null);o.end.push(null);o.tit.push(null);o.sv.push(null);o.bnd.push(null);o.esc.push(null);o.vari.push(null);o.prog.push(null);return;}
     var dS=isoAdd(ym+'-01',-1),dE=ym===thisYM?T:isoAdd(addMonths(ym,1)+'-01',-1),s=0,e=0,t=0,b=0,q=0,w=0;
-    used.forEach(function(u){s+=accBalOn(u.a,txs,u.sn,dS)||0;e+=accBalOn(u.a,txs,u.sn,dE)||0;});
+    used.forEach(function(u){s+=balOf(u,dS);e+=balOf(u,dE);});
     (txs||[]).forEach(function(x){
       if(!x||!ids[x.a]||x.d<=dS||x.d>dE) return;
       if(x.c===titCat) t+=-x.m;
@@ -2211,10 +2213,40 @@ function giroId(){var c=S.cats.find(function(c){return c.t==='giroconto';});retu
 function straoId(){var c=catById('immo');if(c&&c.t==='escluso') return c.id;c=S.cats.find(function(x){return x.t==='escluso'&&x.id!=='titoli';});return c?c.id:null;}
 function entrId(){var c=catById('entr');if(c&&c.t==='entrata') return c.id;c=S.cats.find(function(x){return x.t==='entrata'&&!isVers(x);});return c?c.id:null;}
 function rispId(){var c=S.cats.find(function(c){return c.t==='risparmio';});return c?c.id:null;}
+// banca ordinante letta dal testo del movimento («Banca Ordinante: …»), come nei bonifici Fineco
+function bankOf(text){
+  var m=String(text==null?'':text).replace(/\s+/g,' ').match(/Banca Ordinante:\s*(.+?)(?=\s+(?:Data accredito|Data valuta|Data|Causale|Riferimento|Ordinante|Beneficiari|Beneficiario|Note)\b|$)/i);
+  return m?m[1]:'';
+}
+// regola per i soldi in arrivo: da ING = sempre giroconto; da una Banca di Credito Cooperativo = «Giroconti Costanza» (entrata). Restituisce l'id categoria o null
+function bankRuleCat(t){
+  if(!t||!(t.m>0)) return null;
+  var bk=bankOf(t.s);
+  if(!bk) return null;
+  if(/\bING\b/i.test(bk)) return giroId();
+  if(/CREDITO\s*COOP|\bBCC\b/i.test(bk)){
+    var c=S.cats.find(function(x){return x.t==='entrata'&&/COSTANZA/.test(normDesc(x.n));});
+    return c?c.id:null;
+  }
+  return null;
+}
+// applica la regola ai movimenti già presenti che oggi sono «Giroconto» o senza categoria (le altre categorie scelte da te non si toccano)
+function applyBankRule(){
+  var giro=giroId(),n=0;
+  S.tx.forEach(function(t){
+    if(!(t.m>0)||(t.c&&t.c!==giro)) return;
+    var c=bankRuleCat(t);
+    if(c&&c!==t.c){t.c=c;stamp(t);n++;}
+  });
+  if(n) save();
+  return n;
+}
 function autoCat(t,comp){
   var giro=giroId(),risp=rispId();
   var o=ownTransferCat(t.s,t.a,t.m,S.accounts,giro,risp);
   if(o) return o;
+  var bc=bankRuleCat(t);
+  if(bc) return bc;
   var acc=acctById(t.a);
   if(acc&&acc.inv&&t.m>0&&giro&&inflowFromHousehold(t.s,S.people)) return giro;
   var c=categorize(t.s,comp);
@@ -2249,7 +2281,7 @@ function catType(t){var c=catById(t.c);return c?c.t:(t.m<0?'spesa':'entrata');}
 // metà di un giroconto abbinato per importo ma categorizzate come entrata/spesa (id → 'giroconto'): si ricalcola a ogni disegno
 var PT={},FAM={},BIGIN=500000,FAMNM='Versamenti da familiari';
 // FAM: versamenti di un familiare da conti fuori dall'app (giroconti senza controparte): contano come entrate, sempre
-function refreshPairs(){U.xl=transferLinks(S.tx,catType,4,S.accounts);PT=forcedTypes(U.xl);FAM=famInflows(S.tx,U.xl,catType,S.people||[],BIGIN);Object.keys(FAM).forEach(function(id){PT[id]='entrata';});}
+function refreshPairs(){U.xl=transferLinks(S.tx,catType,4,S.accounts);PT=forcedTypes(U.xl);FAM={}; /* niente più «versamenti da familiari» automatici: decide la categoria (vedi bankRuleCat) */}
 function effType(t){return PT[t.id]||catType(t);}
 function aggregate(txs){
   var r={entrate:0,uscite:0,risp:0,vers:0,byCat:{},n:txs.length,tit:0,sav:0},legs={},pur={};
@@ -2605,7 +2637,7 @@ function viewPm(){
     '<select data-chg="pm-range" aria-label="Periodo">'+opt('12','Ultimi 12 mesi',P.range)+pmYears().map(function(y){return opt(y,'Anno '+y,P.range);}).join('')+'</select>'+
     '<select data-chg="pm-acct" aria-label="Conto"><option value="all">Tutti i conti</option>'+movAccounts().map(function(x){return opt(x.id,x.n,P.acct);}).join('')+'</select>'+
     '<select data-chg="pm-sort" aria-label="Ordina le categorie per" title="Come ordinare le righe delle categorie">'+opt('tot','Ordina per totale',P.sort)+opt('avg','Ordina per media',P.sort)+months.slice().reverse().map(function(ym){return opt('m:'+ym,'Ordina per '+mshort(ym)+' '+ym.slice(2,4),P.sort);}).join('')+opt('name','Ordina per nome (A→Z)',P.sort)+'</select>'+
-    '<label class="chk" style="margin:0" title="Una spesa ripartita su più mesi (es. 3 mesi di condominio pagati insieme) conta per la quota di ciascun mese. Togli la spunta per contare tutto nel mese del pagamento."><input type="checkbox" data-chg="pm-comp"'+(P.cash?'':' checked')+'> per competenza</label></div></div>';
+    '<label class="chk" style="margin:0" title="Una spesa ripartita su più mesi (es. 3 mesi di condominio pagati insieme) conta per la quota di ciascun mese. Togli la spunta per contare tutto nel mese del pagamento."><input type="checkbox" data-chg="pm-comp"'+(P.cash?'':' checked')+'> per competenza</label><span class="grow"></span><button type="button" class="btn" data-act="pm-xlsx" title="Scarica questa tabella e il fondo cassa in un file Excel">Esporta Excel</button><button type="button" class="btn" data-act="xp-xlsx" title="Scarica un Excel per esplorare tutte le categorie: riepilogo, categorie per mese, scheda per categoria e tutti i movimenti">Excel per esplorare</button></div></div>';
   if(!S.tx.length||!M.count){
     return h+'<div class="card"><div class="empty">'+(S.tx.length?'Nessun movimento nel periodo scelto.':'Nessun movimento: importa un estratto conto dalla scheda Movimenti.')+'</div></div>';
   }
@@ -2717,7 +2749,7 @@ function viewPm(){
     });
     bcard='<div class="card"><h2>Stiamo risparmiando? · fondo cassa mese per mese</h2>'+verdict+
       '<div class="scroll"><table class="pm pmx"><thead>'+hd+'</thead><tbody>'+ledger+'</tbody></table></div>'+bigNote+
-      '<p class="note">Si legge in colonna: fondo cassa a inizio mese, più o meno ciò che è successo, uguale fondo cassa a fine mese. Il fondo cassa è la somma dei conti inclusi: '+bs.used.map(function(u){return esc(u.n);}).join(', ')+'.'+
+      '<p class="note">Si legge in colonna: fondo cassa a inizio mese, più o meno ciò che è successo, uguale fondo cassa a fine mese. Il fondo cassa è la somma dei conti inclusi: '+bs.used.map(function(u){return esc(u.n)+(u.noRef?' (senza saldo di riferimento)':'');}).join(', ')+'.'+(bs.used.some(function(u){return u.noRef;})?' Per i conti senza saldo di riferimento il livello del fondo cassa non comprende il loro saldo di partenza, ma entrate, spese e gestione ordinaria sono corrette: per il livello completo imposta il loro saldo in Conti.':'')+
       (bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return esc(u.n)+' ('+esc(u.why)+')';}).join(', ')+'.'+(bs.skipped.some(function(u){return u.k==='ref';})?' Per includere un conto con movimenti imposta il suo saldo di riferimento a una data precedente al primo mese mostrato.':''):'')+
       ' La gestione ordinaria (entrate − spese) conta i soldi veri, per data di pagamento, quindi può differire dalla «Differenza» della tabella sopra, che con «per competenza» ripartisce alcune spese. La gestione straordinaria raccoglie le categorie di tipo «Gestione straordinaria e titoli» (es. vendita o acquisto di una casa, riscatti): per metterci anche le spese di ristrutturazione, cambia il tipo di quella categoria in Impostazioni. Il mese in corso arriva a oggi.'+
       (Object.keys(FAM).length?' I bonifici di un familiare da conti che l’app non vede (es. il coniuge) non sono giroconti: contano come entrate e sono dentro la gestione ordinaria.':'')+'</p></div>';
@@ -2749,7 +2781,7 @@ function viewMov(){
     (S.imps.length?'<select data-chg="mv-batch" title="Mostra solo i movimenti di una importazione"><option value="">Tutte le importazioni</option>'+S.imps.slice().sort(function(a,b){return b.at-a.at;}).map(function(b){return opt(b.id,batchLabel(b),f.batch);}).join('')+'</select>':'')+
     (anyAl?'<label class="chk" style="margin:0" title="Con un mese selezionato: le spese ripartite compaiono per la quota di quel mese. Togli la spunta per vedere i movimenti per data."><input type="checkbox" data-chg="mv-comp"'+(f.cash?'':' checked')+'> per competenza</label>':'')+
     '<select class="mvsort" data-chg="mv-sortsel" aria-label="Ordina per">'+SORTOPTS.map(function(o){return opt(o[0],o[1],f.sort+':'+f.dir);}).join('')+'</select>'+
-    '</div><div class="toolbar"><button class="btn primary" data-act="tx-import">Importa estratto conto</button><button class="btn" data-act="tx-add">+ Movimento manuale</button><span class="grow"></span><span id="txSummary" class="muted" style="font-size:13px"></span></div>'+
+    '</div><div class="toolbar"><button class="btn primary" data-act="tx-import">Importa estratto conto</button><button class="btn" data-act="tx-add">+ Movimento manuale</button><button class="btn" data-act="mv-xlsx" title="Scarica in Excel i movimenti filtrati (tutti, non solo quelli mostrati)">Esporta Excel</button><span class="grow"></span><span id="txSummary" class="muted" style="font-size:13px"></span></div>'+
     '<div id="mvBar"></div><div id="txList"></div></div>';
 }
 function mvRow(t,showAcc,opts){
@@ -3226,7 +3258,7 @@ function impParse(){
   var old=0;
   r.items.forEach(function(i){
     if(i._m) return;
-    if(S.del[i.id]>0){blocked++;return;}
+    if(S.del[i.id]>0&&!imp.o.reimp){blocked++;return;}
     if(lo!=null&&i.d>=lo&&i.d<=hi){old++;return;}
     fresh.push(i);
   });
@@ -3282,7 +3314,10 @@ function impSummary(res){
   if(res.blocked) h+=' (di cui '+nf(res.blocked)+' eliminati in precedenza: non tornano)';
   if(impUpdateMode()&&res.exist.length) h+=' · '+nf(res.exist.length)+' riconosciuti, verranno aggiornati con categorie/competenza';
   if(res.old) h+=' · '+nf(res.old)+' saltati perché nel periodo già importato ('+fd(res.lo)+' – '+fd(res.hi)+')';
-  return h+' · '+nf(res.skipped)+' righe scartate (intestazioni/totali)';
+  h+=' · '+nf(res.skipped)+' righe scartate (intestazioni/totali)';
+  // i movimenti eliminati con «Ricorda l’eliminazione» si possono far tornare di proposito
+  if(res.blocked||imp.o.reimp) h+='<label class="chk" style="margin:10px 0 0"><input type="checkbox" name="o_reimp" data-chg="imp-opt"'+(imp.o.reimp?' checked':'')+'> Reimporta anche i movimenti eliminati in precedenza</label>';
+  return h;
 }
 // foglio da leggere: il primo che contiene un'intestazione riconoscibile (data + importo)
 function pickSheet(wb){
@@ -4104,6 +4139,669 @@ function exportJSON(){
 }
 window.addEventListener('beforeunload',function(e){if(unsaved>0){e.preventDefault();e.returnValue='';}});
 
+// ===== Export Excel (.xlsx) =====
+// Generatore minimale senza librerie (funziona anche offline): fogli, stili, formule, filtri, righe bloccate, formattazione condizionale.
+function xlCol(n){var s='';while(n>0){var m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=Math.floor((n-1)/26);}return s;}
+function xlRef(r,c){return xlCol(c)+r;}
+function xlEsc(s){return String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g,'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+function xlRgb(c){return 'FF'+String(c).replace('#','').toUpperCase();}
+// data ISO (AAAA-MM-GG) → numero seriale di Excel
+function xlSerial(iso){var p=String(iso).split('-');return Math.round((Date.UTC(+p[0],+p[1]-1,+p[2])-Date.UTC(1899,11,30))/86400000);}
+
+function XlBook(){
+  this.sheets=[];this.sst=[];this.sstMap={};
+  this.fonts=[];this.fills=['<fill><patternFill patternType="none"/></fill>','<fill><patternFill patternType="gray125"/></fill>'];
+  this.borders=[];this.nfs=[];this.xfs=[];this.xfMap={};this.dxfs=[];
+  this.style({});
+}
+XlBook.prototype._idx=function(list,xml){var i=list.indexOf(xml);if(i<0){list.push(xml);i=list.length-1;}return i;};
+// stile cella: {b,i,sz,color,fill,nf,h,v,wrap,indent,bt,bb,bl,br} — i bordi sono [tipo,colore]
+XlBook.prototype.style=function(o){
+  o=o||{};
+  var key=JSON.stringify(o);
+  if(this.xfMap.hasOwnProperty(key)) return this.xfMap[key];
+  var font='<font>'+(o.b?'<b/>':'')+(o.i?'<i/>':'')+'<sz val="'+(o.sz||10)+'"/><color rgb="'+xlRgb(o.color||'#14243A')+'"/><name val="Arial"/><family val="2"/></font>';
+  var fontId=this._idx(this.fonts,font);
+  var fillId=0;
+  if(o.fill) fillId=this._idx(this.fills,'<fill><patternFill patternType="solid"><fgColor rgb="'+xlRgb(o.fill)+'"/><bgColor indexed="64"/></patternFill></fill>');
+  function side(n,b){return b?'<'+n+' style="'+b[0]+'"><color rgb="'+xlRgb(b[1])+'"/></'+n+'>':'<'+n+'/>';}
+  var border='<border>'+side('left',o.bl)+side('right',o.br)+side('top',o.bt)+side('bottom',o.bb)+'<diagonal/></border>';
+  var borderId=this._idx(this.borders,border);
+  var nfId=0;
+  if(o.nf){
+    var bi={'General':0,'0':1,'0.00':2,'#,##0':3,'#,##0.00':4};
+    if(bi.hasOwnProperty(o.nf)) nfId=bi[o.nf];
+    else{var k=this.nfs.indexOf(o.nf);if(k<0){this.nfs.push(o.nf);k=this.nfs.length-1;}nfId=164+k;}
+  }
+  var al='';
+  if(o.h||o.v||o.wrap||o.indent) al='<alignment'+(o.h?' horizontal="'+o.h+'"':'')+' vertical="'+(o.v||'center')+'"'+(o.wrap?' wrapText="1"':'')+(o.indent?' indent="'+o.indent+'"':'')+'/>';
+  var xf='<xf numFmtId="'+nfId+'" fontId="'+fontId+'" fillId="'+fillId+'" borderId="'+borderId+'" xfId="0" applyNumberFormat="1" applyFont="1" applyFill="1" applyBorder="1"'+(al?' applyAlignment="1">'+al+'</xf>':'/>');
+  this.xfs.push(xf);
+  var id=this.xfs.length-1;
+  this.xfMap[key]=id;
+  return id;
+};
+// stile differenziale per la formattazione condizionale: {color,fill,b}
+XlBook.prototype.dxf=function(o){
+  var x='<dxf>'+(o.color||o.b?'<font>'+(o.b?'<b/>':'')+(o.color?'<color rgb="'+xlRgb(o.color)+'"/>':'')+'</font>':'')+
+    (o.fill?'<fill><patternFill patternType="solid"><fgColor rgb="'+xlRgb(o.fill)+'"/><bgColor rgb="'+xlRgb(o.fill)+'"/></patternFill></fill>':'')+'</dxf>';
+  return this._idx(this.dxfs,x);
+};
+XlBook.prototype.sheet=function(name,opts){var s=new XlSheet(this,name,opts||{});this.sheets.push(s);return s;};
+XlBook.prototype.str=function(s){
+  s=String(s);if(s.length>32000) s=s.slice(0,32000);
+  if(!this.sstMap.hasOwnProperty(s)){this.sstMap[s]=this.sst.length;this.sst.push(s);}
+  return this.sstMap[s];
+};
+
+function XlSheet(book,name,opts){
+  this.book=book;this.name=String(name).replace(/[\\\/\?\*\[\]:]/g,' ').slice(0,31);this.opts=opts;
+  this.rows={};this.maxR=0;this.maxC=0;this.cols=[];this.rowH={};this.merges=[];this.cfs=[];
+  this.frz=null;this.af=null;this.hid={};this.dvs=[];
+}
+XlSheet.prototype._cell=function(r,c){
+  var row=this.rows[r]||(this.rows[r]={});
+  if(r>this.maxR) this.maxR=r;if(c>this.maxC) this.maxC=c;
+  return row[c]||(row[c]={});
+};
+// valore: stringa, numero o null (cella vuota con stile)
+XlSheet.prototype.set=function(r,c,v,st){
+  var x=this._cell(r,c);x.s=st||0;x.f=null;
+  if(v==null||v==='') x.v=null;
+  else if(typeof v==='number'){x.v=isFinite(v)?v:null;x.t='n';}
+  else{x.v=String(v);x.t='s';}
+  return this;
+};
+XlSheet.prototype.date=function(r,c,iso,st){var x=this._cell(r,c);x.s=st||0;x.f=null;if(/^\d{4}-\d{2}-\d{2}/.test(iso||'')){x.v=xlSerial(iso);x.t='n';}else{x.v=iso==null?null:String(iso);x.t='s';}return this;};
+// formula (senza «=»), con il valore già calcolato così com'è visibile anche dove non si ricalcola
+XlSheet.prototype.f=function(r,c,formula,cached,st){
+  var x=this._cell(r,c);x.s=st||0;x.f=formula;
+  if(typeof cached==='number'){x.v=cached;x.t='n';}else if(cached==null){x.v=null;x.t='n';}else{x.v=String(cached);x.t='str';}
+  return this;
+};
+XlSheet.prototype.style=function(r,c,st){this._cell(r,c).s=st;return this;};
+XlSheet.prototype.fillRow=function(r,c1,c2,st){for(var c=c1;c<=c2;c++){var x=this._cell(r,c);if(x.s==null||x.s===0) x.s=st;}return this;};
+XlSheet.prototype.width=function(c,w){this.cols[c]=w;return this;};
+XlSheet.prototype.height=function(r,h){this.rowH[r]=h;return this;};
+XlSheet.prototype.merge=function(r1,c1,r2,c2){this.merges.push(xlRef(r1,c1)+':'+xlRef(r2,c2));return this;};
+XlSheet.prototype.freeze=function(r,c){this.frz={r:r,c:c};return this;};
+XlSheet.prototype.filter=function(r1,c1,r2,c2){this.af=xlRef(r1,c1)+':'+xlRef(r2,c2);return this;};
+XlSheet.prototype.hideCol=function(c){this.hid[c]=1;return this;};
+// menu a tendina: sq = cella, ref = intervallo con le voci (es. Liste!$A$1:$A$40)
+XlSheet.prototype.list=function(sq,ref,msg){this.dvs.push({sq:sq,ref:ref,msg:msg||''});return this;};
+XlSheet.prototype.cf=function(sqref,formula,dxfId){this.cfs.push({sq:sqref,f:formula,d:dxfId});return this;};
+XlSheet.prototype.xml=function(){
+  var b=this.book,o=[];
+  o.push('<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">');
+  o.push('<sheetPr>'+(this.opts.tab?'<tabColor rgb="'+xlRgb(this.opts.tab)+'"/>':'')+'<pageSetUpPr fitToPage="1"/></sheetPr>');
+  o.push('<dimension ref="A1:'+xlRef(Math.max(this.maxR,1),Math.max(this.maxC,1))+'"/>');
+  var sv='<sheetViews><sheetView workbookViewId="0" showGridLines="0"'+(this.opts.first?' tabSelected="1"':'')+' zoomScale="'+(this.opts.zoom||100)+'">';
+  if(this.frz){
+    var xs=this.frz.c-1,ys=this.frz.r-1,pane=xs>0&&ys>0?'bottomRight':ys>0?'bottomLeft':'topRight';
+    sv+='<pane'+(xs>0?' xSplit="'+xs+'"':'')+(ys>0?' ySplit="'+ys+'"':'')+' topLeftCell="'+xlRef(this.frz.r,this.frz.c)+'" activePane="'+pane+'" state="frozen"/><selection pane="'+pane+'"/>';
+  }
+  sv+='</sheetView></sheetViews>';
+  o.push(sv);
+  o.push('<sheetFormatPr defaultRowHeight="15"/>');
+  var cols='';
+  for(var c=1;c<=this.maxC;c++){if(this.cols[c]||this.hid[c]) cols+='<col min="'+c+'" max="'+c+'" width="'+(this.cols[c]||8)+'"'+(this.hid[c]?' hidden="1"':'')+' customWidth="1"/>';}
+  if(cols) o.push('<cols>'+cols+'</cols>');
+  o.push('<sheetData>');
+  var rs=Object.keys(this.rows).map(Number).sort(function(a,b){return a-b;});
+  rs.forEach(function(r){
+    var row=this.rows[r],ht=this.rowH[r];
+    o.push('<row r="'+r+'"'+(ht?' ht="'+ht+'" customHeight="1"':'')+'>');
+    Object.keys(row).map(Number).sort(function(a,b){return a-b;}).forEach(function(c){
+      var x=row[c],ref=xlRef(r,c),s=x.s?' s="'+x.s+'"':'';
+      if(x.f!=null){
+        o.push('<c r="'+ref+'"'+s+(x.t==='str'?' t="str"':'')+'><f>'+xlEsc(x.f)+'</f>'+(x.v==null?'':'<v>'+xlEsc(x.v)+'</v>')+'</c>');
+      }else if(x.v==null) o.push('<c r="'+ref+'"'+s+'/>');
+      else if(x.t==='s') o.push('<c r="'+ref+'"'+s+' t="s"><v>'+b.str(x.v)+'</v></c>');
+      else o.push('<c r="'+ref+'"'+s+'><v>'+x.v+'</v></c>');
+    });
+    o.push('</row>');
+  },this);
+  o.push('</sheetData>');
+  if(this.af) o.push('<autoFilter ref="'+this.af+'"/>');
+  if(this.merges.length) o.push('<mergeCells count="'+this.merges.length+'">'+this.merges.map(function(m){return '<mergeCell ref="'+m+'"/>';}).join('')+'</mergeCells>');
+  this.cfs.forEach(function(x,i){
+    o.push('<conditionalFormatting sqref="'+x.sq+'"><cfRule type="expression" dxfId="'+x.d+'" priority="'+(i+1)+'"><formula>'+xlEsc(x.f)+'</formula></cfRule></conditionalFormatting>');
+  });
+  if(this.dvs.length) o.push('<dataValidations count="'+this.dvs.length+'">'+this.dvs.map(function(d){return '<dataValidation type="list" allowBlank="1" showInputMessage="1" showErrorMessage="1"'+(d.msg?' promptTitle="Scegli" prompt="'+xlEsc(d.msg)+'"':'')+' errorTitle="Valore non valido" error="Scegli una voce dall’elenco." sqref="'+d.sq+'"><formula1>'+xlEsc(d.ref)+'</formula1></dataValidation>';}).join('')+'</dataValidations>');
+  o.push('<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/>');
+  o.push('<pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/>');
+  o.push('<headerFooter><oddFooter>&amp;L&amp;A&amp;RPagina &amp;P di &amp;N</oddFooter></headerFooter>');
+  o.push('</worksheet>');
+  return o.join('');
+};
+XlBook.prototype.files=function(){
+  var self=this,H='<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n',n=this.sheets.length,F=[];
+  var sheetXml=this.sheets.map(function(s){return s.xml();}); // popola anche le stringhe condivise
+  var ct=H+'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+
+    this.sheets.map(function(s,i){return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';}).join('')+
+    '<Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>'+
+    '<Override PartName="/xl/sharedStrings.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sharedStrings+xml"/>'+
+    '<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/>'+
+    '<Override PartName="/docProps/app.xml" ContentType="application/vnd.openxmlformats-officedocument.extended-properties+xml"/></Types>';
+  F.push(['[Content_Types].xml',ct]);
+  F.push(['_rels/.rels',H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties" Target="docProps/core.xml"/><Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties" Target="docProps/app.xml"/></Relationships>']);
+  var now=new Date().toISOString().replace(/\.\d+Z$/,'Z');
+  F.push(['docProps/core.xml',H+'<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:dcterms="http://purl.org/dc/terms/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><dc:title>'+xlEsc(this.title||'Conti di casa')+'</dc:title><dc:creator>Conti di casa</dc:creator><dcterms:created xsi:type="dcterms:W3CDTF">'+now+'</dcterms:created></cp:coreProperties>']);
+  F.push(['docProps/app.xml',H+'<Properties xmlns="http://schemas.openxmlformats.org/officeDocument/2006/extended-properties"><Application>Conti di casa</Application></Properties>']);
+  F.push(['xl/workbook.xml',H+'<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><bookViews><workbookView xWindow="0" yWindow="0" windowWidth="28800" windowHeight="16000" activeTab="0"/></bookViews><sheets>'+
+    this.sheets.map(function(s,i){return '<sheet name="'+xlEsc(s.name)+'" sheetId="'+(i+1)+'"'+(s.opts.hidden?' state="hidden"':'')+' r:id="rId'+(i+1)+'"/>';}).join('')+'</sheets><calcPr calcId="191029" fullCalcOnLoad="1"/></workbook>']);
+  F.push(['xl/_rels/workbook.xml.rels',H+'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    this.sheets.map(function(s,i){return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>';}).join('')+
+    '<Relationship Id="rId'+(n+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/><Relationship Id="rId'+(n+2)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></Relationships>']);
+  var st=H+'<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'+
+    (this.nfs.length?'<numFmts count="'+this.nfs.length+'">'+this.nfs.map(function(f,i){return '<numFmt numFmtId="'+(164+i)+'" formatCode="'+xlEsc(f)+'"/>';}).join('')+'</numFmts>':'')+
+    '<fonts count="'+this.fonts.length+'">'+this.fonts.join('')+'</fonts><fills count="'+this.fills.length+'">'+this.fills.join('')+'</fills><borders count="'+this.borders.length+'">'+this.borders.join('')+'</borders>'+
+    '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="'+this.xfs.length+'">'+this.xfs.join('')+'</cellXfs>'+
+    '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>'+
+    '<dxfs count="'+this.dxfs.length+'">'+this.dxfs.join('')+'</dxfs></styleSheet>';
+  F.push(['xl/styles.xml',st]);
+  F.push(['xl/sharedStrings.xml',H+'<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="'+this.sst.length+'" uniqueCount="'+this.sst.length+'">'+
+    this.sst.map(function(s){return '<si><t'+(/^\s|\s$|\n/.test(s)?' xml:space="preserve"':'')+'>'+xlEsc(s)+'</t></si>';}).join('')+'</sst>']);
+  sheetXml.forEach(function(x,i){F.push(['xl/worksheets/sheet'+(i+1)+'.xml',x]);});
+  return F;
+};
+var XL_CRC=null;
+function xlCrc(u8){
+  if(!XL_CRC){XL_CRC=new Uint32Array(256);for(var n=0;n<256;n++){var c=n;for(var k=0;k<8;k++) c=c&1?0xEDB88320^(c>>>1):c>>>1;XL_CRC[n]=c>>>0;}}
+  var crc=0xFFFFFFFF;
+  for(var i=0;i<u8.length;i++) crc=XL_CRC[(crc^u8[i])&0xFF]^(crc>>>8);
+  return (crc^0xFFFFFFFF)>>>0;
+}
+async function xlDeflate(u8){
+  var cs=new CompressionStream('deflate-raw'),w=cs.writable.getWriter();
+  var p=w.write(u8).then(function(){return w.close();});
+  var out=new Uint8Array(await new Response(cs.readable).arrayBuffer());
+  await p;
+  return out;
+}
+// ZIP: compresso con deflate se il browser lo permette, altrimenti «store» (valido comunque)
+async function xlZip(files,noCompress){
+  var enc=new TextEncoder(),parts=[],cen=[],off=0,d=new Date();
+  var dt=((d.getFullYear()-1980)<<9|(d.getMonth()+1)<<5|d.getDate())&0xFFFF,tm=(d.getHours()<<11|d.getMinutes()<<5|(d.getSeconds()>>1))&0xFFFF;
+  for(var i=0;i<files.length;i++){
+    var name=enc.encode(files[i][0]),data=enc.encode(files[i][1]),crc=xlCrc(data),comp=data,method=0;
+    if(!noCompress&&typeof CompressionStream!=='undefined'){try{var z=await xlDeflate(data);if(z.length<data.length){comp=z;method=8;}}catch(e){comp=data;method=0;}}
+    var lh=new DataView(new ArrayBuffer(30));
+    lh.setUint32(0,0x04034b50,true);lh.setUint16(4,20,true);lh.setUint16(6,0x0800,true);lh.setUint16(8,method,true);lh.setUint16(10,tm,true);lh.setUint16(12,dt,true);
+    lh.setUint32(14,crc,true);lh.setUint32(18,comp.length,true);lh.setUint32(22,data.length,true);lh.setUint16(26,name.length,true);lh.setUint16(28,0,true);
+    parts.push(new Uint8Array(lh.buffer),name,comp);
+    var ch=new DataView(new ArrayBuffer(46));
+    ch.setUint32(0,0x02014b50,true);ch.setUint16(4,20,true);ch.setUint16(6,20,true);ch.setUint16(8,0x0800,true);ch.setUint16(10,method,true);ch.setUint16(12,tm,true);ch.setUint16(14,dt,true);
+    ch.setUint32(16,crc,true);ch.setUint32(20,comp.length,true);ch.setUint32(24,data.length,true);ch.setUint16(28,name.length,true);ch.setUint32(42,off,true);
+    cen.push(new Uint8Array(ch.buffer),name);
+    off+=30+name.length+comp.length;
+  }
+  var cl=0;cen.forEach(function(x){cl+=x.length;});
+  var e=new DataView(new ArrayBuffer(22));
+  e.setUint32(0,0x06054b50,true);e.setUint16(8,files.length,true);e.setUint16(10,files.length,true);e.setUint32(12,cl,true);e.setUint32(16,off,true);
+  return new Blob(parts.concat(cen,[new Uint8Array(e.buffer)]),{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+async function xlSave(book,filename){
+  var blob=await xlZip(book.files());
+  var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=filename;
+  document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
+}
+
+// ---- Export Excel delle viste «Per mese» e «Movimenti»: stessi filtri, stessi numeri di ciò che si vede a schermo ----
+var XLC={navy:'#112B4D',ink:'#14243A',soft:'#E9EFF8',line:'#D3DCE9',good:'#0B6B46',bad:'#B4303F',muted:'#52687F',cur:'#1D5FD1',curSoft:'#E3EDFD',futHdr:'#5B7699',zebra:'#F4F7FB',badSoft:'#FBE3E6'};
+var XLNF0='#,##0;-#,##0;"–"',XLNF0S='+#,##0;[Red]-#,##0;"–"',XLNF2='#,##0.00;[Red]-#,##0.00';
+function xlStamp(){return todayISO().split('-').reverse().join('/');}
+function xlName(base){return 'conti-casa-'+base+'-'+todayISO()+'.xlsx';}
+function xlTitleBar(b,sh,title,subtitle,lastCol){
+  var t=b.style({b:1,sz:15,color:'#FFFFFF',fill:XLC.navy,v:'center',indent:1}),f=b.style({fill:XLC.navy}),s=b.style({sz:9.5,color:XLC.muted,v:'center',indent:1});
+  sh.set(1,1,title,t);sh.fillRow(1,2,lastCol,f);sh.merge(1,1,1,lastCol);sh.height(1,30);
+  sh.set(2,1,subtitle,s);sh.height(2,20);
+}
+function xlYmDate(ym){return ym+'-01';}
+
+// ===== Per mese =====
+async function exportPmXlsx(){
+  var P=U.pm,types={};
+  S.cats.forEach(function(c){types[c.id]=c.t;});
+  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM};
+  var M=monthMatrix(S.tx,months,types,mopt);
+  if(!S.tx.length||!M.count){toast('Niente da esportare: nessun movimento nel periodo scelto');return;}
+  var nc=months.length,avgM=pmAvgMonths(months,M.first,thisYM,M.firstD),pos={};
+  months.forEach(function(ym,i){pos[ym]=i;});
+  var c1=2,cT=c1+nc,cA=cT+1,cB=cA+1,last=cB;          // colonne: categoria | mesi | totale | media | budget
+  var b=new XlBook();b.title='Conti di casa · Per mese';
+  var sh=b.sheet('Per mese',{first:1,tab:XLC.cur});
+  var acct=P.acct==='all'?'tutti i conti':(acctById(P.acct)||{}).n||'',
+    per=P.range==='12'?'ultimi 12 mesi':'anno '+P.range;
+  xlTitleBar(b,sh,'Conti di casa · Per mese','Periodo: '+per+'  ·  Conto: '+acct+'  ·  Criterio: '+(P.cash?'per data di pagamento':'per competenza (le spese ripartite contano per quota)')+'  ·  Importi in euro  ·  Esportato il '+xlStamp(),last);
+  sh.width(1,47);for(var i=0;i<nc;i++) sh.width(c1+i,10.5);sh.width(cT,12).width(cA,12).width(cB,12);
+
+  // stili
+  var line=['thin',XLC.line];
+  var hCat=b.style({b:1,color:'#FFFFFF',fill:XLC.navy,v:'center',indent:1}),
+    hMon=function(ym){return b.style({b:1,color:'#FFFFFF',fill:ym===thisYM?XLC.cur:ym>thisYM?XLC.futHdr:XLC.navy,h:'center',v:'center',wrap:1});},
+    hRt=b.style({b:1,color:'#FFFFFF',fill:XLC.navy,h:'right',v:'center'}),
+    secS=b.style({b:1,color:XLC.navy,fill:XLC.soft,v:'center',indent:1}),
+    secF=b.style({fill:XLC.soft}),
+    catS=b.style({bb:line,indent:1}),
+    cellS=function(ym,o){o=o||{};return b.style({nf:o.nf||XLNF0,h:'right',bb:line,fill:ym===thisYM?XLC.curSoft:null,color:o.color||XLC.ink,i:o.i,b:o.b});},
+    totL=b.style({b:1,fill:XLC.soft,bt:['thin',XLC.navy],bb:['thin',XLC.navy],indent:1}),
+    totN=function(ym,nf,color){return b.style({b:1,nf:nf||XLNF0,h:'right',fill:XLC.soft,bt:['thin',XLC.navy],bb:['thin',XLC.navy],color:color||XLC.ink});},
+    mutL=b.style({i:1,color:XLC.muted,bb:line,indent:1}),
+    note=b.style({sz:9,color:XLC.muted,v:'top',wrap:1,indent:1});
+  var dxBad=b.dxf({color:XLC.bad,fill:XLC.badSoft,b:1});
+
+  // intestazione tabella categorie (la riga di intestazione è bloccata)
+  var R0=8;
+  sh.set(R0,1,'Categoria',hCat);
+  months.forEach(function(ym,i){sh.set(R0,c1+i,mshort(ym)+' '+ym.slice(2,4),hMon(ym));});
+  sh.set(R0,cT,'Totale',hRt).set(R0,cA,'Media',hRt).set(R0,cB,'Budget',hRt);
+  sh.height(R0,22);
+  var r=R0+1,cl=xlCol;
+  function rng(row,a,z){return cl(a)+row+':'+cl(z)+row;}
+  var aFrom=avgM.length?c1+pos[avgM[0]]:null,aTo=avgM.length?c1+pos[avgM[avgM.length-1]]:null;
+  function sum(arr){return arr.reduce(function(s,v){return s+v;},0);}
+  function eu(c){return c/100;}
+  // scrive il blocco Totale e Media di una riga; vals = importi in centesimi per mese
+  function tail(row,vals,st,stNum){
+    var t=sum(vals),a=avgM.length?avgM.reduce(function(s,ym){return s+(vals[pos[ym]]||0);},0)/avgM.length:0;
+    sh.f(row,cT,'SUM('+rng(row,c1,c1+nc-1)+')',eu(t),stNum||st);
+    if(aFrom) sh.f(row,cA,'AVERAGE('+rng(row,aFrom,aTo)+')',eu(a),stNum||st); else sh.set(row,cA,0,stNum||st);
+  }
+  function catKeys(g,type){
+    var sk=P.sort,pi=/^m:/.test(sk)?pos[sk.slice(2)]:null;
+    if(/^m:/.test(sk)&&pi==null) sk='tot';
+    var nmOf=function(k){var c=catById(k);return k==='__fam'?FAMNM:c?c.n:'Da categorizzare';};
+    var keyOf=function(k){var a=g[k];return sk==='avg'?avgM.reduce(function(x,ym){return x+(a[pos[ym]]||0);},0):pi!=null?(a[pi]||0):sum(a);};
+    return Object.keys(g).filter(function(k){return g[k].some(function(v){return v!==0;});}).sort(function(a,b2){
+      if(sk==='name') return nmOf(a).localeCompare(nmOf(b2),'it',{sensitivity:'base'});
+      return keyOf(b2)-keyOf(a)||sum(g[b2])-sum(g[a])||nmOf(a).localeCompare(nmOf(b2),'it',{sensitivity:'base'});
+    });
+  }
+  function section(label){sh.set(r,1,label,secS);sh.fillRow(r,2,last,secF);sh.height(r,19);r++;}
+  // righe di categoria; restituisce {first,last,keys}
+  function catRows(g,type,withBudget){
+    var ks=catKeys(g,type),first=r;
+    ks.forEach(function(k){
+      var c=catById(k),nm=k==='__fam'?FAMNM:c?c.n:'Da categorizzare',bud=withBudget&&c&&c.b?c.b:0;
+      sh.set(r,1,nm,catS);
+      months.forEach(function(ym,i){sh.set(r,c1+i,eu(g[k][i]||0),cellS(ym));});
+      tail(r,g[k],cellS('',{}));
+      if(bud) sh.set(r,cB,eu(bud),cellS('',{color:XLC.muted})); else sh.set(r,cB,null,cellS('',{}));
+      r++;
+    });
+    return {first:first,last:r-1,keys:ks};
+  }
+  // riga di totale come somma delle righe sopra
+  function totalRow(label,rows,arr,color){
+    sh.set(r,1,label,totL);
+    months.forEach(function(ym,i){
+      var v=arr[i];
+      if(rows.keys.length) sh.f(r,c1+i,'SUM('+cl(c1+i)+rows.first+':'+cl(c1+i)+rows.last+')',eu(v),totN(ym,XLNF0,color));
+      else sh.set(r,c1+i,0,totN(ym,XLNF0,color));
+    });
+    var t=sum(arr),a=avgM.length?avgM.reduce(function(s,ym){return s+(arr[pos[ym]]||0);},0)/avgM.length:0;
+    sh.f(r,cT,'SUM('+rng(r,c1,c1+nc-1)+')',eu(t),totN('',XLNF0,color));
+    if(aFrom) sh.f(r,cA,'AVERAGE('+rng(r,aFrom,aTo)+')',eu(a),totN('',XLNF0,color)); else sh.set(r,cA,0,totN('',XLNF0,color));
+    sh.set(r,cB,null,totN('',XLNF0));
+    r++;return r-1;
+  }
+  // entrate
+  section('Entrate');
+  var eR=catRows(M.entrata,'entrata',false),eTot=totalRow('Totale entrate',eR,M.ent,XLC.good);
+  // spese
+  section('Spese');
+  var sR=catRows(M.spesa,'spesa',true),sTot=totalRow('Totale spese',sR,M.usc,XLC.bad);
+  if(sR.keys.length){
+    sh.cf(cl(c1)+sR.first+':'+cl(c1+nc-1)+sR.last,'AND($'+cl(cB)+sR.first+'>0,'+cl(c1)+sR.first+'>$'+cl(cB)+sR.first+')',dxBad);
+    sh.cf(cl(cA)+sR.first+':'+cl(cA)+sR.last,'AND($'+cl(cB)+sR.first+'>0,'+cl(cA)+sR.first+'>$'+cl(cB)+sR.first+')',dxBad);
+  }
+  // differenza
+  var dif=M.ent.map(function(v,i){return v-M.usc[i];}),dR=r;
+  sh.set(r,1,'Differenza (entrate − spese)',totL);
+  months.forEach(function(ym,i){sh.f(r,c1+i,cl(c1+i)+eTot+'-'+cl(c1+i)+sTot,eu(dif[i]),totN(ym,XLNF0S,XLC.good));});
+  sh.f(r,cT,cl(cT)+eTot+'-'+cl(cT)+sTot,eu(sum(dif)),totN('',XLNF0S,XLC.good));
+  sh.f(r,cA,cl(cA)+eTot+'-'+cl(cA)+sTot,eu(avgM.length?avgM.reduce(function(s,ym){return s+(dif[pos[ym]]||0);},0)/avgM.length:0),totN('',XLNF0S,XLC.good));
+  sh.set(r,cB,null,totN('',XLNF0));
+  sh.height(r,20);r++;
+  // risparmio e titoli
+  if(sum(M.rsp)||sum(M.tit)){
+    section('Risparmio / PAC');
+    catRows(M.risp,'risparmio',false);
+    if(sum(M.tit)){
+      sh.set(r,1,'Titoli acquistati (dossier) · non sommare alle righe sopra',mutL);
+      months.forEach(function(ym,i){sh.set(r,c1+i,eu(M.tit[i]||0),cellS(ym,{i:1,color:XLC.muted}));});
+      tail(r,M.tit,cellS('',{i:1,color:XLC.muted}));sh.set(r,cB,null,cellS('',{}));r++;
+    }
+  }
+  // giroconti
+  if(sum(M.gin)||sum(M.gout)){
+    section('Giroconti · non inclusi nei totali');
+    [['Arrivati da altri conti',M.gin],['Usciti verso altri conti',M.gout]].forEach(function(x){
+      sh.set(r,1,x[0],mutL);
+      months.forEach(function(ym,i){sh.set(r,c1+i,eu(x[1][i]||0),cellS(ym,{i:1,color:XLC.muted}));});
+      tail(r,x[1],cellS('',{i:1,color:XLC.muted}));sh.set(r,cB,null,cellS('',{}));r++;
+    });
+  }
+  var lastCat=r-1;
+
+  // KPI in alto (formule sulle medie della tabella)
+  var kL=b.style({b:1,sz:10,color:XLC.ink,v:'center',indent:1}),kD=b.style({sz:9,color:XLC.muted,v:'center'});
+  var nAvg=avgM.length||1,aU=avgM.length?avgM.reduce(function(s,ym){return s+M.usc[pos[ym]];},0)/nAvg:0,aE=avgM.length?avgM.reduce(function(s,ym){return s+M.ent[pos[ym]];},0)/nAvg:0;
+  var kv=function(col){return b.style({b:1,sz:12,nf:XLNF0S,h:'right',color:col,v:'center'});};
+  var kvPlain=function(col){return b.style({b:1,sz:12,nf:'#,##0;-#,##0;"–"',h:'right',color:col,v:'center'});};
+  sh.set(4,1,'Spese medie al mese',kL).f(4,2,cl(cA)+sTot,eu(aU),kvPlain(XLC.bad)).set(4,3,'su '+(avgM.length||0)+(avgM.length===1?' mese':' mesi')+(avgM.length&&avgM[avgM.length-1]===thisYM?' (compreso quello in corso)':' completi'),kD);
+  sh.set(5,1,'Entrate medie al mese',kL).f(5,2,cl(cA)+eTot,eu(aE),kvPlain(XLC.good)).set(5,3,'giroconti esclusi',kD);
+  sh.set(6,1,'Differenza media',kL).f(6,2,cl(cA)+dR,eu(aE-aU),kv(aE-aU>=0?XLC.good:XLC.bad)).set(6,3,'entrate − spese al mese',kD);
+  for(var kr=4;kr<=6;kr++) sh.height(kr,20);
+  sh.width(2,10.5);
+
+  // ===== fondo cassa =====
+  var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl);
+  var notes=[];
+  if(bs){
+    r=lastCat+3;
+    var fh=r;
+    sh.set(r,1,'Fondo cassa · mese per mese',hCat);
+    months.forEach(function(ym,i){sh.set(r,c1+i,mshort(ym)+' '+ym.slice(2,4),hMon(ym));});
+    sh.set(r,cT,'Totale',hRt);sh.fillRow(r,cA,last,hRt);sh.height(r,22);r++;
+    var has=function(i){return bs.start[i]!=null;},
+      z=function(a){return a.map(function(v){return v==null?0:v;});},
+      vv=z(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=z(bs.bnd),qq=z(bs.esc);
+    var rS=r,rO=r+1,rT=r+2,rQ=r+3,rG=r+4,rE=r+5,rP=r+6,rPQ=r+7;
+    // una riga: label, valori (centesimi) per mese; opts = {neg, st, bold, color, total}
+    function ledger(row,label,arr,o){
+      o=o||{};
+      sh.set(row,1,label,o.bold?totL:(o.muted?mutL:catS));
+      months.forEach(function(ym,i){
+        var base={nf:o.nf||XLNF0S,color:o.color?null:(o.muted?XLC.muted:XLC.ink),i:o.muted,b:o.bold};
+        var st=o.bold?totN(ym,o.nf||XLNF0S):cellS(ym,base);
+        if(!has(i)){sh.set(row,c1+i,null,st);return;}
+        var v=arr[i]*(o.neg?-1:1);
+        if(o.formula) sh.f(row,c1+i,o.formula(cl(c1+i),i),eu(v),st); else sh.set(row,c1+i,eu(v),st);
+      });
+      var tv=0;months.forEach(function(ym,i){if(has(i)) tv+=arr[i]*(o.neg?-1:1);});
+      var tst=o.bold?totN('',o.nf||XLNF0S):cellS('',{nf:o.nf||XLNF0S,i:o.muted,color:o.muted?XLC.muted:XLC.ink});
+      if(o.total) sh.f(row,cT,'SUM('+rng(row,c1,c1+nc-1)+')',eu(tv),tst); else sh.set(row,cT,null,tst);
+      if(o.bold) sh.fillRow(row,cA,last,totN('',XLNF0));
+    }
+    var startArr=bs.start.map(function(v){return v==null?0:v;}),endArr=bs.end.map(function(v){return v==null?0:v;});
+    var prog=bs.prog.map(function(v){return v==null?0:v;}),qrun=0,qprog=bs.esc.map(function(v){if(v==null) return 0;qrun+=v;return qrun;});
+    ledger(rS,'Fondo cassa a inizio mese',startArr,{bold:true,nf:XLNF0});
+    ledger(rO,'+ Gestione ordinaria (entrate − spese)',vv,{total:true,color:1});
+    ledger(rT,'− Titoli e PAC',mm,{neg:true,muted:true,total:true});
+    ledger(rQ,'+ Gestione straordinaria (casa, riscatti)',qq,{muted:true,total:true});
+    ledger(rG,'+ Giroconti da conti non inclusi',bb,{muted:true,total:true});
+    ledger(rE,'= Fondo cassa a fine mese',endArr,{bold:true,nf:XLNF0,formula:function(L,i){return L+rS+'+'+L+rO+'+'+L+rT+'+'+L+rQ+'+'+L+rG;}});
+    // progressivi: somma mese dopo mese
+    var from=mlabel(months[0]).replace(/ \d+$/,'');
+    ledger(rP,'Gestione ordinaria da '+from+' (progressivo)',prog,{bold:true,formula:function(L,i){return i===0?L+rO:cl(c1+i-1)+rP+'+'+L+rO;}});
+    ledger(rPQ,'Gestione straordinaria da '+from+' (progressivo)',qprog,{bold:true,formula:function(L,i){return i===0?L+rQ:cl(c1+i-1)+rPQ+'+'+L+rQ;}});
+    // i progressivi non hanno totale; il fondo cassa a fine mese neppure
+    r=rPQ+1;
+    var sgnTot=0;months.forEach(function(ym,i){if(has(i)) sgnTot+=vv[i];});
+    notes.push('Fondo cassa = somma dei conti inclusi: '+bs.used.map(function(u){return u.n+(u.noRef?' (senza saldo di riferimento)':'');}).join(', ')+'.'+(bs.used.some(function(u){return u.noRef;})?' Per i conti senza saldo di riferimento il livello del fondo cassa non comprende il loro saldo di partenza, ma entrate, spese e gestione ordinaria sono corrette.':'')+(bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return u.n+' ('+u.why+')';}).join(', ')+'.':''));
+    notes.push('La gestione ordinaria (entrate − spese) conta i soldi veri, per data di pagamento, quindi può differire dalla «Differenza» della tabella sopra se è attivo il criterio «per competenza». Fondo cassa a fine mese = inizio mese + gestione ordinaria − titoli e PAC + gestione straordinaria + giroconti da conti non inclusi.');
+  }
+  notes.push('Le celle in rosso superano il budget mensile della categoria (colonna Budget, impostabile nell’app). Totali e medie sono formule: la media usa i mesi completi, dal primo mese con dati. I giroconti (soldi spostati tra conti) e la gestione straordinaria non entrano nei totali di entrate e spese.');
+  r+=1;
+  notes.forEach(function(n){
+    sh.set(r,1,n,note);sh.merge(r,1,r,last);sh.height(r,n.length>230?40:28);r++;
+  });
+  sh.freeze(R0+1,2);
+  await xlSave(b,xlName('per-mese'));
+  toast('Excel esportato: Per mese ('+nf(nc)+(nc===1?' mese':' mesi')+')');
+}
+
+// ===== Movimenti =====
+async function exportMvXlsx(){
+  var f=U.mv,list=mvList();
+  if(!list.length){toast('Nessun movimento da esportare: cambia i filtri');return;}
+  var b=new XlBook();b.title='Conti di casa · Movimenti';
+  var sh=b.sheet('Movimenti',{first:1,tab:XLC.cur});
+  var last=10;
+  var catLabel=f.cat?(f.cat==='_none'?'Da categorizzare':f.cat==='__giro'?'Tutti i giroconti':f.cat==='__fam'?'Versamenti da familiari':f.cat==='__esc'?'Gestione straordinaria':f.cat==='__chk'?'Da controllare (possibili giroconti)':(catById(f.cat)||{}).n||''):'tutte';
+  var sortLbl=(SORTOPTS.filter(function(o){return o[0]===f.sort+':'+f.dir;})[0]||['',''])[1];
+  var imp=f.batch?S.imps.filter(function(x){return x.id===f.batch;})[0]:null;
+  var parts=['Conto: '+(f.acct==='all'?'tutti':(acctById(f.acct)||{}).n||''),'Mese: '+(f.month?mlabel(f.month)+(f.cash?' (per data)':' (per competenza)'):'tutti'),'Categoria: '+catLabel];
+  if(f.q) parts.push('Ricerca: «'+f.q+'»');
+  if(imp) parts.push('Importazione: '+batchLabel(imp));
+  parts.push('Ordine: '+sortLbl);parts.push('Esportato il '+xlStamp());
+  xlTitleBar(b,sh,'Conti di casa · Movimenti',parts.join('  ·  '),last);
+  var W=[12,11,46,24,26,13,14,38,34,60];W.forEach(function(w,i){sh.width(i+1,w);});
+  var line=['thin',XLC.line];
+  var hS=function(h){return b.style({b:1,color:'#FFFFFF',fill:XLC.navy,h:h||'left',v:'center',indent:h?0:1});};
+  var H=['Data','Mese','Descrizione','Conto','Categoria','Tipo','Importo','Dettaglio','Nota','Testo originale'],R0=4,R1=R0+1,RL=R0+list.length;
+  H.forEach(function(h,i){sh.set(R0,i+1,h,hS(i===6?'right':i<2?'center':undefined));});
+  sh.height(R0,22);
+  var sD=b.style({nf:'dd/mm/yyyy',h:'center',bb:line}),sM=b.style({nf:'mmm yyyy',h:'center',bb:line,color:XLC.muted}),
+    sT=b.style({bb:line,indent:1}),sT0=b.style({bb:line,indent:1,color:XLC.muted}),sA=b.style({nf:XLNF2,h:'right',bb:line,indent:1}),
+    sTy=b.style({bb:line,indent:1,color:XLC.muted});
+  var TY={spesa:'Spesa',entrata:'Entrata',risparmio:'Risparmio',giroconto:'Giroconto',escluso:'Straordinaria'};
+  var tot=0;
+  list.forEach(function(t,i){
+    var r=R1+i,ty=effType(t),c=catById(t.c),xl=U.xl&&U.xl[t.id],det=[];
+    if(t._p) det.push('quota di '+mlabel(t._p)+' su '+(t._tot/100).toFixed(2).replace('.',',')+' €');
+    else if(t.al&&t.al.length) det.push('ripartito su '+t.al.length+(t.al.length===1?' mese':' mesi')+': '+t.al.map(function(p){return mshort(p[0])+' '+p[0].slice(2,4)+' '+(p[1]/100).toFixed(2).replace('.',',')+' €';}).join(' · '));
+    if(FAM[t.id]) det.push('versamento da familiare · conta come entrata');
+    else if(xl) det.push(xferLabel(t,xl,true));
+    sh.date(r,1,t.d,sD);
+    sh.f(r,2,'DATE(YEAR(A'+r+'),MONTH(A'+r+'),1)',xlSerial(t.d.slice(0,7)+'-01'),sM);
+    sh.set(r,3,shortDesc(t.s)||'(senza descrizione)',sT);
+    sh.set(r,4,mvAccName(t.a)||'?',sT);
+    sh.set(r,5,c?c.n:'Da categorizzare',c?sT:sT0);
+    sh.set(r,6,TY[ty]||'',sTy);
+    sh.set(r,7,t.m/100,sA);
+    sh.set(r,8,det.join(' · '),sT0);
+    sh.set(r,9,t.n||'',sT);
+    sh.set(r,10,String(t.s==null?'':t.s).replace(/\s+/g,' ').trim(),sT0);
+    tot+=t.m;
+  });
+  // totali che seguono i filtri di Excel (solo righe visibili)
+  var kL=b.style({b:1,color:XLC.ink,v:'center',indent:1}),kV=b.style({b:1,sz:11,h:'left',v:'center',nf:'#,##0'}),kN=b.style({b:1,sz:11,h:'right',v:'center',nf:XLNF2}),kR=b.style({b:1,h:'right',v:'center',color:XLC.ink});
+  sh.set(3,1,'Righe visibili',kL);sh.f(3,3,'SUBTOTAL(103,G'+R1+':G'+RL+')',list.length,kV);
+  sh.set(3,6,'Netto visibile',kR);sh.f(3,7,'SUBTOTAL(109,G'+R1+':G'+RL+')',tot/100,kN);
+  sh.set(3,8,'Si aggiornano con i filtri sulle intestazioni',b.style({sz:9,color:XLC.muted,v:'center',indent:1}));
+  sh.height(3,22);
+  sh.filter(R0,1,RL,last);sh.freeze(R1,1);
+  sh.cf('A'+R1+':'+xlCol(last)+RL,'MOD(ROW(),2)=0',b.dxf({fill:XLC.zebra}));
+  await xlSave(b,xlName('movimenti'));
+  toast('Excel esportato: '+nf(list.length)+(list.length===1?' movimento':' movimenti'));
+}
+
+// ===== Excel «da esplorare»: riepilogo, categorie × mesi (filtrabile), scheda per categoria con menu a tendina, tutti i movimenti =====
+async function exportExploreXlsx(){
+  var P=U.pm;
+  if(!S.tx.length){toast('Niente da esportare: nessun movimento');return;}
+  var TY={spesa:'Spesa',entrata:'Entrata',risparmio:'Risparmio',giroconto:'Giroconto',escluso:'Straordinaria'},TORD={Entrata:0,Spesa:1,Risparmio:2,Giroconto:3,Straordinaria:4,Titoli:5};
+  // 1) una riga per movimento (o per quota di competenza, se non si conta per data di pagamento)
+  var rows=[];
+  S.tx.forEach(function(t){
+    if(!t||!t.d) return;
+    var ty=effType(t),c=catById(t.c),xl=U.xl&&U.xl[t.id],tl=(t.c==='titoli')?'Titoli':(TY[ty]||''),parts=P.cash?[{ym:t.d.slice(0,7),m:t.m}]:txParts(t);
+    parts.forEach(function(p){
+      var det=[];
+      if(parts.length>1) det.push('quota di '+mlabel(p.ym)+' su '+(t.m/100).toFixed(2).replace('.',',')+' €');
+      if(FAM[t.id]) det.push('versamento da familiare · conta come entrata');
+      else if(xl) det.push(xferLabel(t,xl,true));
+      rows.push({d:t.d,ym:p.ym,m:p.m,ty:tl,cat:c?c.n:'Da categorizzare',acc:mvAccName(t.a)||'?',desc:shortDesc(t.s)||'(senza descrizione)',det:det.join(' · '),note:t.n||''});
+    });
+  });
+  rows.sort(function(a,b){return a.d<b.d?1:a.d>b.d?-1:0;});
+  // 2) mesi: dal primo con dati fino all'ultimo (almeno il mese in corso), al massimo gli ultimi 36
+  var lo=null,hi=thisYM;
+  rows.forEach(function(x){if(lo==null||x.ym<lo) lo=x.ym;if(x.ym>hi) hi=x.ym;});
+  var months=[],trunc=false;
+  for(var ym=lo;ym<=hi;ym=addMonths(ym,1)) months.push(ym);
+  if(months.length>36){months=months.slice(-36);trunc=true;}
+  var nm=months.length,mpos={};months.forEach(function(y,i){mpos[y]=i;});
+  var lastDone=-1;months.forEach(function(y,i){if(y<thisYM) lastDone=i;});   // ultimo mese completo
+  // 3) riepilogo per (categoria, tipo)
+  var map={},keys=[];
+  rows.forEach(function(x){
+    var k=x.cat+'\u0001'+x.ty;
+    if(!map[k]){map[k]={cat:x.cat,ty:x.ty,v:months.map(function(){return 0;}),n:0};keys.push(k);}
+    map[k].n++;
+    if(mpos[x.ym]!=null) map[k].v[mpos[x.ym]]+=x.m;
+  });
+  var cats=keys.map(function(k){var o=map[k];o.tot=o.v.reduce(function(s,v){return s+v;},0);return o;}).sort(function(a,b){
+    return ((TORD[a.ty]==null?9:TORD[a.ty])-(TORD[b.ty]==null?9:TORD[b.ty]))||(Math.abs(b.tot)-Math.abs(a.tot))||a.cat.localeCompare(b.cat,'it',{sensitivity:'base'});
+  });
+  var names=[];cats.forEach(function(o){if(names.indexOf(o.cat)<0) names.push(o.cat);});
+  names.sort(function(a,b){return a.localeCompare(b,'it',{sensitivity:'base'});});
+  // categoria iniziale della scheda «Esplora»: la spesa più pesante
+  var def=cats.filter(function(o){return o.ty==='Spesa';}).sort(function(a,b){return a.tot-b.tot;})[0]||cats[0],defName=def.cat;
+
+  var b=new XlBook();b.title='Conti di casa · Esplora categorie';
+  var shR=b.sheet('Riepilogo',{first:1,tab:XLC.cur}),shC=b.sheet('Categorie',{tab:'#0B6B46'}),shE=b.sheet('Esplora',{tab:'#D9A400'}),shM=b.sheet('Movimenti',{tab:XLC.muted}),shL=b.sheet('Liste',{hidden:1});
+  var line=['thin',XLC.line],cl=xlCol,eu=function(c){return c/100;};
+  var crit=(P.cash?'per data di pagamento':'per competenza (le spese ripartite contano per quota)');
+  var stamp='Esportato il '+xlStamp();
+  // --- foglio Movimenti (la base di tutte le formule) ---
+  var NR=rows.length,M0=5,ML=M0+NR-1;
+  var mr=function(col){return 'Movimenti!$'+col+'$'+M0+':$'+col+'$'+ML;};
+  xlTitleBar(b,shM,'Conti di casa · Movimenti (tutti)','Tutti i movimenti, '+crit+'  ·  Importi in euro: entrate positive, spese negative  ·  Base dei fogli Riepilogo, Categorie ed Esplora  ·  '+stamp,9);
+  [12,11,46,24,26,13,14,38,34].forEach(function(w,i){shM.width(i+1,w);});shM.width(10,6).hideCol(10);
+  var hS=function(h){return b.style({b:1,color:'#FFFFFF',fill:XLC.navy,h:h||'left',v:'center',indent:h?0:1});};
+  ['Data','Mese','Descrizione','Conto','Categoria','Tipo','Importo','Dettaglio','Nota'].forEach(function(h,i){shM.set(4,i+1,h,hS(i===6?'right':i<2?'center':undefined));});
+  shM.set(4,10,'#',hS('center')).height(4,22);
+  var sD=b.style({nf:'dd/mm/yyyy',h:'center',bb:line}),sMo=b.style({nf:'mmm yyyy',h:'center',bb:line,color:XLC.muted}),sT=b.style({bb:line,indent:1}),sT0=b.style({bb:line,indent:1,color:XLC.muted}),sA=b.style({nf:XLNF2,h:'right',bb:line,indent:1});
+  var run=0;
+  rows.forEach(function(x,i){
+    var r=M0+i;
+    shM.date(r,1,x.d,sD).date(r,2,x.ym+'-01',sMo).set(r,3,x.desc,sT).set(r,4,x.acc,sT).set(r,5,x.cat,x.cat==='Da categorizzare'?sT0:sT).set(r,6,x.ty,sT0).set(r,7,eu(x.m),sA).set(r,8,x.det,sT0).set(r,9,x.note,sT);
+    var hit=x.cat===defName?1:0;run+=hit;
+    shM.f(r,10,'N(J'+(r-1)+')+IF(E'+r+'=Esplora!$C$4,1,0)',run,0);
+  });
+  shM.filter(4,1,ML,9).freeze(5,1);
+  shM.cf('A'+M0+':I'+ML,'MOD(ROW(),2)=0',b.dxf({fill:XLC.zebra}));
+  // --- foglio Liste (voci del menu) ---
+  names.forEach(function(n,i){shL.set(i+1,1,n,0);});
+  shL.width(1,30);
+
+  // --- stili comuni ai fogli con i mesi ---
+  var hMon=function(ym){return b.style({b:1,color:'#FFFFFF',fill:ym===thisYM?XLC.cur:ym>thisYM?XLC.futHdr:XLC.navy,h:'center',v:'center',nf:'mmm yy'});},
+    hL=b.style({b:1,color:'#FFFFFF',fill:XLC.navy,v:'center',indent:1}),hR=b.style({b:1,color:'#FFFFFF',fill:XLC.navy,h:'right',v:'center'}),
+    nS=function(ym,o){o=o||{};return b.style({nf:o.nf||XLNF2.replace(/\.00/g,''),h:'right',bb:line,fill:ym===thisYM?XLC.curSoft:null,b:o.b,color:o.color||XLC.ink});};
+  var NF0S='#,##0;[Red]-#,##0;"–"';
+  var c1=3,cT=c1+nm,cA=cT+1,cN=cA+1,cQ=cN+1;
+  var aFrom=lastDone>=0?cl(c1):null,aTo=lastDone>=0?cl(c1+lastDone):null;
+  var avgOf=function(v){return lastDone>=0?v.slice(0,lastDone+1).reduce(function(s,x){return s+x;},0)/(lastDone+1):0;};
+
+  // --- foglio Riepilogo ---
+  xlTitleBar(b,shR,'Conti di casa · Riepilogo mensile','Entrate, spese e differenza per mese  ·  '+crit+'  ·  Importi in euro  ·  '+stamp+(trunc?'  ·  ultimi 36 mesi':''),cA);
+  shR.width(1,34).width(2,3);for(var i=0;i<nm;i++) shR.width(c1+i,10);shR.width(cT,12).width(cA,12);
+  shR.set(4,1,'Voce',hL).set(4,2,null,hL);
+  months.forEach(function(y,i){shR.date(4,c1+i,y+'-01',hMon(y));});
+  shR.set(4,cT,'Totale',hR).set(4,cA,'Media',hR).height(4,22);
+  var sumTy=function(ty,sign){return months.map(function(y,i){return rows.reduce(function(s,x){return x.ty===ty&&x.ym===y?s+x.m:s;},0)*sign;});};
+  var E=sumTy('Entrata',1),Sp=sumTy('Spesa',-1),Df=E.map(function(v,i){return v-Sp[i];});
+  var rLab=function(t){return b.style({b:1,bb:line,indent:1,color:t||XLC.ink});};
+  var lineR=function(r,label,vals,fn,color,nf){
+    shR.set(r,1,label,rLab(color)).set(r,2,null,rLab());
+    months.forEach(function(y,i){shR.f(r,c1+i,fn(cl(c1+i),y),eu(vals[i]),nS(y,{nf:nf,color:color,b:1}));});
+    var t=vals.reduce(function(s,v){return s+v;},0);
+    shR.f(r,cT,'SUM('+cl(c1)+r+':'+cl(c1+nm-1)+r+')',eu(t),nS('',{nf:nf,color:color,b:1}));
+    if(aFrom) shR.f(r,cA,'AVERAGE('+aFrom+r+':'+aTo+r+')',eu(avgOf(vals)),nS('',{nf:nf,color:color,b:1})); else shR.set(r,cA,0,nS('',{nf:nf,color:color,b:1}));
+  };
+  lineR(5,'Entrate',E,function(L){return 'SUMIFS('+mr('G')+','+mr('F')+',"Entrata",'+mr('B')+','+L+'$4)';},XLC.good,'#,##0;-#,##0;"–"');
+  lineR(6,'Spese',Sp,function(L){return '-SUMIFS('+mr('G')+','+mr('F')+',"Spesa",'+mr('B')+','+L+'$4)';},XLC.bad,'#,##0;-#,##0;"–"');
+  lineR(7,'Differenza (entrate − spese)',Df,function(L){return L+'5-'+L+'6';},XLC.ink,NF0S);
+  shR.set(8,1,'Risparmiato sulle entrate',b.style({i:1,color:XLC.muted,indent:1}));
+  months.forEach(function(y,i){var L=cl(c1+i);shR.f(8,c1+i,'IF('+L+'5=0,"",'+L+'7/'+L+'5)',E[i]?Df[i]/E[i]:'',b.style({nf:'0%;[Red]-0%',h:'right',i:1,color:XLC.muted}));});
+  var tE=E.reduce(function(s,v){return s+v;},0),tD=Df.reduce(function(s,v){return s+v;},0);
+  shR.f(8,cT,'IF('+cl(cT)+'5=0,"",'+cl(cT)+'7/'+cl(cT)+'5)',tE?tD/tE:'',b.style({nf:'0%;[Red]-0%',h:'right',i:1,color:XLC.muted}));
+  var rn=b.style({sz:9,color:XLC.muted,v:'top',wrap:1,indent:1});
+  shR.set(10,1,'Entrate e spese sono quelle “vere”: giroconti tra conti, risparmio/PAC e gestione straordinaria non sono comprese (le trovi per tipo nel foglio Categorie). La media considera i mesi completi (il mese in corso è escluso). Tutti i numeri sono formule sul foglio Movimenti: se cambi una categoria o un importo là, si aggiornano.',rn).merge(10,1,10,cA).height(10,40);
+  shR.freeze(5,3);
+
+  // --- foglio Categorie: elenco piatto, filtrabile e ordinabile ---
+  var CH=4,C0=5,CL=C0+cats.length-1;
+  xlTitleBar(b,shC,'Conti di casa · Tutte le categorie per mese','Una riga per categoria e tipo  ·  Usa le frecce sulle intestazioni per filtrare (es. Tipo = Spesa) e ordinare  ·  Entrate positive, spese negative  ·  '+crit+'  ·  '+stamp+(trunc?'  ·  ultimi 36 mesi':''),cQ);
+  shC.width(1,36).width(2,14);for(var j=0;j<nm;j++) shC.width(c1+j,10);shC.width(cT,12).width(cA,12).width(cN,9).width(cQ,10);
+  shC.set(CH,1,'Categoria',hL).set(CH,2,'Tipo',hL);
+  months.forEach(function(y,i){shC.date(CH,c1+i,y+'-01',hMon(y));});
+  shC.set(CH,cT,'Totale',hR).set(CH,cA,'Media',hR).set(CH,cN,'N° mov.',hR).set(CH,cQ,'Quota',hR).height(CH,22);
+  var catBand=b.style({b:1,fill:XLC.soft,bt:['thin',XLC.navy],bb:['thin',XLC.navy],indent:1}),bandN=function(nf){return b.style({b:1,nf:nf,h:'right',fill:XLC.soft,bt:['thin',XLC.navy],bb:['thin',XLC.navy]});};
+  var tyTot={};cats.forEach(function(o){tyTot[o.ty]=(tyTot[o.ty]||0)+o.tot;});
+  cats.forEach(function(o,i){
+    var r=C0+i;
+    shC.set(r,1,o.cat,o.cat==='Da categorizzare'?sT0:sT).set(r,2,o.ty,sT0);
+    months.forEach(function(y,k){
+      var L=cl(c1+k);
+      shC.f(r,c1+k,'SUMIFS('+mr('G')+','+mr('E')+',$A'+r+','+mr('F')+',$B'+r+','+mr('B')+','+L+'$'+CH+')',eu(o.v[k]),nS(y,{nf:NF0S}));
+    });
+    shC.f(r,cT,'SUM('+cl(c1)+r+':'+cl(c1+nm-1)+r+')',eu(o.tot),nS('',{nf:NF0S,b:1}));
+    if(aFrom) shC.f(r,cA,'AVERAGE('+aFrom+r+':'+aTo+r+')',eu(avgOf(o.v)),nS('',{nf:NF0S})); else shC.set(r,cA,0,nS('',{nf:NF0S}));
+    shC.f(r,cN,'COUNTIFS('+mr('E')+',$A'+r+','+mr('F')+',$B'+r+')',o.n,nS('',{nf:'#,##0'}));
+    if(o.ty==='Spesa'||o.ty==='Entrata') shC.f(r,cQ,'IF('+cl(cT)+r+'=0,"",'+cl(cT)+r+'/SUMIFS($'+cl(cT)+'$'+C0+':$'+cl(cT)+'$'+CL+',$B$'+C0+':$B$'+CL+',$B'+r+'))',tyTot[o.ty]?o.tot/tyTot[o.ty]:'',nS('',{nf:'0.0%'}));
+    else shC.set(r,cQ,null,nS('',{}));
+  });
+  // fascia dei totali sulle sole righe visibili
+  shC.set(3,1,'Totale righe visibili',catBand).set(3,2,null,catBand);
+  months.forEach(function(y,k){var L=cl(c1+k),v=cats.reduce(function(s,o){return s+o.v[k];},0);shC.f(3,c1+k,'SUBTOTAL(109,'+L+C0+':'+L+CL+')',eu(v),bandN(NF0S));});
+  [cT,cA].forEach(function(c){var L=cl(c),v=c===cT?cats.reduce(function(s,o){return s+o.tot;},0):cats.reduce(function(s,o){return s+avgOf(o.v);},0);shC.f(3,c,'SUBTOTAL(109,'+L+C0+':'+L+CL+')',eu(v),bandN(NF0S));});
+  shC.f(3,cN,'SUBTOTAL(109,'+cl(cN)+C0+':'+cl(cN)+CL+')',cats.reduce(function(s,o){return s+o.n;},0),bandN('#,##0')).set(3,cQ,null,bandN('0%'));
+  shC.height(3,20).filter(CH,1,CL,cQ).freeze(C0,3);
+  shC.cf('A'+C0+':'+cl(cQ)+CL,'MOD(ROW(),2)=0',b.dxf({fill:XLC.zebra}));
+
+  // --- foglio Esplora: scegli una categoria, vedi mesi e movimenti ---
+  var LEN=Math.max(50,Math.min(1500,cats.reduce(function(m,o){return Math.max(m,o.n);},0)));
+  // i movimenti per categoria (tutti i tipi insieme), in ordine di data decrescente come nel foglio Movimenti
+  var mine=[],minePos=[];rows.forEach(function(x,k){if(x.cat===defName){mine.push(x);minePos.push(k+1);}});var nMine=mine.length,totMine=mine.reduce(function(s,x){return s+x.m;},0);
+  xlTitleBar(b,shE,'Conti di casa · Esplora una categoria','Scegli la categoria nella cella gialla: totali, andamento per mese e movimenti si aggiornano da soli  ·  '+crit+'  ·  '+stamp,12);
+  [6,12,46,20,14,14,34,28,3,12,14,8,6].forEach(function(w,i){shE.width(i+1,w);});shE.hideCol(13);
+  var lab=b.style({b:1,color:XLC.ink,v:'center',indent:1}),pick=b.style({b:1,sz:12,fill:'#FFF3B0',bt:['medium',XLC.cur],bb:['medium',XLC.cur],bl:['medium',XLC.cur],br:['medium',XLC.cur],v:'center',indent:1});
+  shE.set(4,2,'Categoria',lab).set(4,3,defName,pick).height(4,26);
+  shE.list('C4','Liste!$A$1:$A$'+names.length,'Scegli una categoria dall’elenco');
+  shE.set(4,4,'◀ scegli qui',b.style({i:1,color:XLC.muted,sz:9,v:'center',indent:1}));
+  var kv=function(nf){return b.style({b:1,sz:11,nf:nf,h:'right',v:'center',bb:line});},kl=b.style({color:XLC.muted,bb:line,v:'center',indent:1});
+  var kLast=M0+NR-1;
+  shE.set(6,3,'Totale (tutti i mesi)',kl).f(6,4,'SUMIFS('+mr('G')+','+mr('E')+',$C$4)',eu(totMine),kv(XLNF2));
+  shE.set(7,3,'N° movimenti',kl).f(7,4,'COUNTIF('+mr('E')+',$C$4)',nMine,kv('#,##0'));
+  shE.set(8,3,'Media per movimento',kl).f(8,4,'IF(D7=0,0,D6/D7)',nMine?eu(totMine)/nMine:0,kv(XLNF2));
+  var H0=11,L0=12,LL=L0+LEN-1,K0=L0,KL=L0+nm-1;
+  var mineV=months.map(function(y){return mine.reduce(function(s,x){return x.ym===y?s+x.m:s;},0);});
+  shE.set(9,3,'Media mensile (mesi completi)',kl);
+  if(lastDone>=0) shE.f(9,4,'AVERAGE(K'+K0+':K'+(K0+lastDone)+')',eu(avgOf(mineV)),kv(XLNF2)); else shE.set(9,4,0,kv(XLNF2));
+  // elenco dei movimenti
+  ['#','Data','Descrizione','Conto','Tipo','Importo','Dettaglio','Nota'].forEach(function(h,i){shE.set(H0,i+1,h,i===0?hS('center'):hS(i===5?'right':i===1?'center':undefined));});
+  shE.height(H0,22);
+  var nS0=b.style({sz:8,color:'#9AA6B8',h:'center'}),sEA=b.style({nf:XLNF2,h:'right',indent:1}),sED=b.style({nf:'dd/mm/yyyy',h:'center'}),eT=b.style({indent:1}),eT0=b.style({indent:1,color:XLC.muted});
+  var idx=function(col,r){return 'INDEX(Movimenti!$'+col+'$'+M0+':$'+col+'$'+ML+',$M'+r+')';};
+  for(var i=0;i<LEN;i++){
+    var r=L0+i,x=mine[i];
+    shE.set(r,1,i+1,nS0);
+    shE.f(r,13,'IFERROR(MATCH($A'+r+',Movimenti!$J$'+M0+':$J$'+ML+',0),"")',x?minePos[i]:'',0);
+    shE.f(r,2,'IF($M'+r+'="","",'+idx('A',r)+')',x?xlSerial(x.d):'',sED);
+    shE.f(r,3,'IF($M'+r+'="","",'+idx('C',r)+'&"")',x?x.desc:'',eT);
+    shE.f(r,4,'IF($M'+r+'="","",'+idx('D',r)+'&"")',x?x.acc:'',eT);
+    shE.f(r,5,'IF($M'+r+'="","",'+idx('F',r)+'&"")',x?x.ty:'',eT0);
+    shE.f(r,6,'IF($M'+r+'="","",'+idx('G',r)+')',x?eu(x.m):'',sEA);
+    shE.f(r,7,'IF($M'+r+'="","",'+idx('H',r)+'&"")',x?x.det:'',eT0);
+    shE.f(r,8,'IF($M'+r+'="","",'+idx('I',r)+'&"")',x?x.note:'',eT);
+  }
+  var warn=b.style({i:1,color:XLC.bad,sz:9,indent:1});
+  shE.f(10,3,'IF(D7>'+LEN+',"Mostrati i primi '+LEN+' movimenti: per vederli tutti filtra la colonna Categoria nel foglio Movimenti","")','',warn);
+  shE.cf('A'+L0+':H'+LL,'$M'+L0+'=""',b.dxf({color:'#FFFFFF'}));
+  shE.cf('B'+L0+':H'+LL,'AND($M'+L0+'<>"",MOD(ROW(),2)=0)',b.dxf({fill:XLC.zebra}));
+  // andamento per mese (a destra)
+  shE.set(H0,10,'Mese',hS('center')).set(H0,11,'Importo',hS('right')).set(H0,12,'N°',hS('right'));
+  months.forEach(function(y,i){
+    var r=K0+i,mm=mine.filter(function(x){return x.ym===y;});
+    shE.date(r,10,y+'-01',b.style({nf:'mmm yyyy',h:'center',bb:line,fill:y===thisYM?XLC.curSoft:null}));
+    shE.f(r,11,'SUMIFS('+mr('G')+','+mr('E')+',$C$4,'+mr('B')+',J'+r+')',eu(mineV[i]),b.style({nf:XLNF2,h:'right',bb:line,indent:1,fill:y===thisYM?XLC.curSoft:null}));
+    shE.f(r,12,'COUNTIFS('+mr('E')+',$C$4,'+mr('B')+',J'+r+')',mm.length,b.style({nf:'#,##0;-#,##0;"–"',h:'right',bb:line,fill:y===thisYM?XLC.curSoft:null}));
+  });
+  var rt=KL+1;
+  shE.set(rt,10,'Totale',b.style({b:1,fill:XLC.soft,bt:['thin',XLC.navy],h:'center'}));
+  shE.f(rt,11,'SUM(K'+K0+':K'+KL+')',eu(mineV.reduce(function(s,v){return s+v;},0)),b.style({b:1,nf:XLNF2,h:'right',fill:XLC.soft,bt:['thin',XLC.navy],indent:1}));
+  shE.f(rt,12,'SUM(L'+K0+':L'+KL+')',months.reduce(function(s,y){return s+mine.filter(function(x){return x.ym===y;}).length;},0),b.style({b:1,nf:'#,##0',h:'right',fill:XLC.soft,bt:['thin',XLC.navy]}));
+  await xlSave(b,xlName('esplora'));
+  toast('Excel esportato: '+nf(cats.length)+' categorie, '+nf(NR)+' movimenti');
+}
+
 // ===== Eventi =====
 var H={
   tab:function(el){U.tab=el.dataset.tab;render();window.scrollTo(0,0);},
@@ -4131,6 +4829,9 @@ var H={
   mprev:function(){U.month=addMonths(U.month,-1);render();},
   mnext:function(){U.month=addMonths(U.month,1);render();},
   'mv-more':function(){U.mv.limit+=200;renderTxList();},
+  'pm-xlsx':function(){exportPmXlsx().catch(function(e){logErr(e);toast('Export Excel non riuscito: '+String(e&&e.message||e).slice(0,80));});},
+  'xp-xlsx':function(){exportExploreXlsx().catch(function(e){logErr(e);toast('Export Excel non riuscito: '+String(e&&e.message||e).slice(0,80));});},
+  'mv-xlsx':function(){exportMvXlsx().catch(function(e){logErr(e);toast('Export Excel non riuscito: '+String(e&&e.message||e).slice(0,80));});},
   'tx-add':function(){txModal();},
   'tx-edit':function(el){txModal(el.dataset.id);},
   'tx-note':function(el){noteModal(el.dataset.id);},
@@ -4293,7 +4994,8 @@ var CH={
     var f=$('#mform'),g=function(n){return !!(f.elements[n]&&f.elements[n].checked);},o=imp.o;
     if(f.elements.o_cat) {o.cat=g('o_cat');o.over=g('o_over');o.learn=g('o_learn');}
     if(f.elements.o_al) o.al=g('o_al');
-    o.skipOld=g('o_old');
+    if(f.elements.o_old) o.skipOld=g('o_old');
+    if(f.elements.o_reimp) o.reimp=g('o_reimp');
     refreshImp();
   }
 };
@@ -4439,6 +5141,7 @@ idbBoot();
 patAuto();
 render();
 renderBanner();
+(function(){var k='conti_casa_bankrule_v1';if(lsGet(k)||!S.tx.length) return;try{var n=applyBankRule();lsSet(k,'1');if(n){render();toast('Regola banca ordinante applicata a '+nf(n)+(n===1?' movimento':' movimenti'));}}catch(e){logErr(e);}})();
 </script>
 </body>
 </html>
