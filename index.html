@@ -73,6 +73,8 @@ label.chk input{width:auto;margin:0;flex:none}
 .brg{width:100%;max-width:440px;border-collapse:collapse}.brg td{padding:4px 4px;border-bottom:1px dashed var(--line)}.brg tr.op td,.brg tr.tot td{font-weight:650}.brg tr.tot td{border-top:2px solid var(--ctl);border-bottom:0}
 .gact{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:4px}.gact select{flex:1 1 200px}
 .warnline{font-size:12.5px;color:var(--warn);margin:2px 0 6px}
+.pmx td.bigf{text-decoration:underline dotted var(--warn);text-decoration-thickness:2px;text-underline-offset:4px}
+.bigline{margin:8px 0 0;line-height:1.5}.bigline .btn{margin-left:6px;vertical-align:baseline}
 .pill{display:inline-block;font-size:11.5px;line-height:1.5;padding:0 7px;border-radius:999px;background:var(--soft);color:var(--muted)}
 .pill.bad{background:color-mix(in srgb,var(--bad) 13%,transparent);color:var(--bad)}
 .pill.good{background:color-mix(in srgb,var(--good) 13%,transparent);color:var(--good)}
@@ -1146,7 +1148,7 @@ function monthMatrix(txs,months,types,opt){
     if(ty!=='spesa'&&ty!=='entrata'&&ty!=='risparmio') return;
     parts.forEach(function(p){
       var i=idx[p.ym];if(i==null) return;
-      var k=t.c||'_none';
+      var k=(opt.fam&&opt.fam[t.id])?'__fam':(t.c||'_none');
       if(ty==='spesa'){add(o.spesa,k,i,-p.m);o.usc[i]+=-p.m;}
       else if(ty==='entrata'){add(o.entrata,k,i,p.m);o.ent[i]+=p.m;}
       else{add(o.risp,k,i,-p.m);o.rsp[i]+=-p.m;}
@@ -1330,8 +1332,11 @@ function suspectMoves(txs,x,min){
   var out={},negN={},low=Math.max(1,Math.round(min/50));
   (txs||[]).forEach(function(t){
     var am=Math.abs(t.m),big=am>=min;
+    // ingresso grande senza controparte tra i conti dell'app (es. l'incasso di una vendita): giroconto, entrata o operazione straordinaria? (x.bigSince: solo i recenti)
+    if(x.links&&x.bigIn&&t.m>=x.bigIn&&(!x.bigSince||t.d>=x.bigSince)&&x.typeOf(t)==='giroconto'){var lk=x.links[t.id];if(lk&&lk.k==='ext'){out[t.id]='bigin';return;}}
     if(!big&&!(t.m<0&&am>=low)) return;
     if(!t.c){if(big) out[t.id]='nocat';return;}
+    if(x.fam&&x.fam[t.id]) return;
     var ty=x.typeOf(t);
     if(ty!=='spesa'&&ty!=='entrata') return;
     if(x.vers(t)){if(t.m<0&&big) out[t.id]='vers-out';return;}
@@ -1831,7 +1836,7 @@ function accBalOn(acc,txs,snaps,ymd){
 }
 // vista «Per mese»: saldo a inizio mese, variazione e progressivo.
 // Variazione = saldo a fine mese − saldo a inizio mese + soldi messi da parte che escono dai conti (titoli acquistati, PAC o polizze verso conti non inclusi: risparmio, non spesa) − giroconti da/verso conti non inclusi − operazioni escluse (es. vendita o acquisto di una casa): né entrate né spese.
-// Si usano solo i conti il cui saldo è noto già all'inizio del primo mese mostrato, così la serie è confrontabile; gli altri sono elencati in skipped.
+// Si usano solo i conti con movimenti il cui saldo è noto già all'inizio del primo mese mostrato, così la serie è confrontabile; gli altri (anche i conti «solo saldo») sono elencati in skipped.
 // typeOf(t) = tipo effettivo del movimento; links = collegamenti dei giroconti (transferLinks): un giroconto è interno se l'altra metà sta su un conto incluso.
 function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
   if(!months||!months.length) return null;
@@ -1839,11 +1844,11 @@ function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
   (accts||[]).forEach(function(a){
     if(!a) return;
     var sn=snapsOf?snapsOf(a.id):[];
+    // un conto «solo saldo» non ha movimenti: i soldi che passano da/verso di lui non si possono classificare (sarebbero tolti due volte dalla gestione ordinaria), quindi resta fuori dal fondo cassa
+    // e ciò che arriva da lì (o ci va) compare tra i giroconti da conti non inclusi
+    if(a.mode==='saldo'){skipped.push({id:a.id,n:a.n,why:'solo saldo, senza movimenti: ciò che passa da o verso questo conto compare tra i giroconti da conti non inclusi',k:'saldo'});return;}
     if(accBalOn(a,txs,sn,d0)!=null) used.push({a:a,sn:sn});
-    else{
-      var why=a.mode==='saldo'?(sn&&sn.length?'saldo noto solo dal '+sn.reduce(function(m,s){return s.d<m?s.d:m;},sn[0].d):'nessun saldo registrato'):'manca il saldo di riferimento';
-      skipped.push({id:a.id,n:a.n,why:why});
-    }
+    else skipped.push({id:a.id,n:a.n,why:'manca il saldo di riferimento',k:'ref'});
   });
   if(!used.length) return null;
   var ids={};used.forEach(function(u){ids[u.a.id]=1;});
@@ -1867,12 +1872,51 @@ function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
   });
   return o;
 }
+// titolari «di casa» che compaiono SOLO in conti cointestati (di solito il coniuge) restano fuori da questa lista; qui ci sono quelli che hanno un conto personale importato (titolare unico) = chi usa l'app
+function ownerSets(people){
+  var out=[];
+  (people||[]).forEach(function(h){var ps=personWordSets(h);if(ps.length===1) out.push(ps[0]);});
+  return out;
+}
+// versamenti di un familiare (es. il coniuge) da un conto che l'app non vede: giroconto in entrata senza controparte (link «ext») il cui ordinante è un titolare di casa e NON chi usa l'app
+// (un bonifico disposto da entrambi, cioè dal conto cointestato, ha due ordinanti: resta un giroconto). typeOf = tipo dalla sola categoria; maxCents = sopra questo importo non conta da sé. Risultato {idMovimento:1}
+function famInflows(txs,links,typeOf,people,maxCents){
+  var own=ownerSets(people),out={};
+  (txs||[]).forEach(function(t){
+    if(!t||!(t.m>0)||typeOf(t)!=='giroconto') return;
+    // un importo grande (es. l'incasso di una vendita) non è un contributo ricorrente: lo decide chi usa l'app (vedi bigInflows)
+    if(maxCents&&t.m>=maxCents) return;
+    var l=links&&links[t.id];
+    if(!l||l.k!=='ext') return;
+    var snd=senderOf(t.s);
+    if(!snd||!nameIsPerson(snd,people)) return;
+    // più ordinanti (nomi separati da virgola, «e», «&»): bonifico disposto dal conto cointestato, anche se il nome di chi usa l'app è troncato
+    if(snd.split(/,|;|\s+e\s+|\s+&\s+/).filter(function(p){return nameWords(p).length;}).length>1) return;
+    var tk={};
+    nameWords(snd).forEach(function(w){tk[w]=1;});
+    if(own.some(function(ws){return ws.every(function(w){return tk[w]===1;});})) return;
+    out[t.id]=1;
+  });
+  return out;
+}
+// ingressi grandi (>= min) che arrivano da conti che l'app non vede e restano giroconti (es. l'incasso della vendita di un immobile): per mese {AAAA-MM:{n,sum}}; ids = conti considerati ({id:1}) o null per tutti
+function bigInflows(txs,links,typeOf,min,ids){
+  var out={};
+  (txs||[]).forEach(function(t){
+    if(!t||!(t.m>=min)||(ids&&!ids[t.a])||typeOf(t)!=='giroconto') return;
+    var l=links&&links[t.id];
+    if(!l||l.k!=='ext') return;
+    var ym=String(t.d).slice(0,7),o=out[ym]||(out[ym]={n:0,sum:0});
+    o.n++;o.sum+=t.m;
+  });
+  return out;
+}
 // ==/CORE==
 
 // ===== Dati =====
 var KEY='conti_casa_v1';
 var PALETTE=['#4f8cff','#f2994a','#27ae7a','#b86bff','#e5586e','#2fb7c9','#d9a400','#7a8cff','#8bc34a','#ff7f50','#5c6bc0','#26a69a','#c0792b','#9aa3b0'];
-var TL={spesa:'Spese',entrata:'Entrate',risparmio:'Risparmio',giroconto:'Giroconti',escluso:'Esclusi dai conti'};
+var TL={spesa:'Spese',entrata:'Entrate',risparmio:'Risparmio',giroconto:'Giroconti',escluso:'Gestione straordinaria e titoli'};
 var TYPES=['spesa','entrata','risparmio','giroconto','escluso'];
 function uid(){return Math.random().toString(36).slice(2,9)+Date.now().toString(36).slice(-4);}
 function defaults(){
@@ -2163,6 +2207,9 @@ function movAccounts(){return S.accounts.filter(function(a){return a.mode==='mov
 // l'ultima categoria di tipo giroconto o risparmio: senza, i soldi spostati verrebbero contati come spese ed entrate
 function sysCatLast(c){return !!c&&(c.t==='giroconto'||c.t==='risparmio')&&S.cats.filter(function(x){return x.t===c.t;}).length<=1;}
 function giroId(){var c=S.cats.find(function(c){return c.t==='giroconto';});return c?c.id:null;}
+// categoria per «operazione straordinaria»: «Operazioni immobiliari» se c'è, altrimenti la prima di tipo escluso che non sia l'acquisto di titoli
+function straoId(){var c=catById('immo');if(c&&c.t==='escluso') return c.id;c=S.cats.find(function(x){return x.t==='escluso'&&x.id!=='titoli';});return c?c.id:null;}
+function entrId(){var c=catById('entr');if(c&&c.t==='entrata') return c.id;c=S.cats.find(function(x){return x.t==='entrata'&&!isVers(x);});return c?c.id:null;}
 function rispId(){var c=S.cats.find(function(c){return c.t==='risparmio';});return c?c.id:null;}
 function autoCat(t,comp){
   var giro=giroId(),risp=rispId();
@@ -2200,15 +2247,16 @@ function toast(msg){
 // tipo dato dalla sola categoria (senza controparte)
 function catType(t){var c=catById(t.c);return c?c.t:(t.m<0?'spesa':'entrata');}
 // metà di un giroconto abbinato per importo ma categorizzate come entrata/spesa (id → 'giroconto'): si ricalcola a ogni disegno
-var PT={};
-function refreshPairs(){U.xl=transferLinks(S.tx,catType,4,S.accounts);PT=forcedTypes(U.xl);}
+var PT={},FAM={},BIGIN=500000,FAMNM='Versamenti da familiari';
+// FAM: versamenti di un familiare da conti fuori dall'app (giroconti senza controparte): contano come entrate, sempre
+function refreshPairs(){U.xl=transferLinks(S.tx,catType,4,S.accounts);PT=forcedTypes(U.xl);FAM=famInflows(S.tx,U.xl,catType,S.people||[],BIGIN);Object.keys(FAM).forEach(function(id){PT[id]='entrata';});}
 function effType(t){return PT[t.id]||catType(t);}
 function aggregate(txs){
   var r={entrate:0,uscite:0,risp:0,vers:0,byCat:{},n:txs.length,tit:0,sav:0},legs={},pur={};
   txs.forEach(function(t){
     var c=catById(t.c),ty=effType(t);
     if(ty==='spesa'){r.uscite+=-t.m;var k=c?c.id:'_none';r.byCat[k]=(r.byCat[k]||0)+(-t.m);}
-    else if(ty==='entrata'){r.entrate+=t.m;if(isVers(c)) r.vers+=t.m;}
+    else if(ty==='entrata'){r.entrate+=t.m;if(isVers(c)||FAM[t.id]) r.vers+=t.m;}
     else if(ty==='risparmio'){
       r.risp+=-t.m;
       var l=U.xl&&U.xl[t.id];
@@ -2228,7 +2276,9 @@ function txFor(f){
   var qq=f.q?normDesc(f.q):'',out=[],sus=f.cat==='__chk'?suspectNow():null;
   S.tx.forEach(function(t){
     if(f.acct&&f.acct!=='all'&&t.a!==f.acct) return;
-    if(f.cat==='__giro'){if(effType(t)!=='giroconto') return;}
+    if(f.cat==='__fam'){if(!FAM[t.id]) return;}
+    else if(f.cat==='__esc'){if(effType(t)!=='escluso'||t.c==='titoli') return;}
+    else if(f.cat==='__giro'){if(effType(t)!=='giroconto') return;}
     else if(f.cat==='__chk'){if(!sus[t.id]) return;}
     else if(f.cat&&(f.cat==='_none'?t.c:t.c!==f.cat)) return;
     if(f.batch&&t.b!==f.batch) return;
@@ -2293,7 +2343,7 @@ function fixUI(){
   if(!/^(tot|avg|name|m:\d{4}-\d{2})$/.test(String(p.sort))) p.sort='tot';
   if(m.acct!=='all'&&!acctById(m.acct)) m.acct='all';
   if(m.month&&!validYM(m.month)) m.month='';
-  if(m.cat&&m.cat!=='_none'&&m.cat!=='__giro'&&m.cat!=='__chk'&&!catById(m.cat)) m.cat='';
+  if(m.cat&&m.cat!=='_none'&&m.cat!=='__giro'&&m.cat!=='__fam'&&m.cat!=='__esc'&&m.cat!=='__chk'&&!catById(m.cat)) m.cat='';
   if(m.batch&&!S.imps.some(function(x){return x.id===m.batch;})) m.batch='';
   if(['d','s','a','c','m'].indexOf(m.sort)<0) m.sort='d';
   if(m.dir!==1&&m.dir!==-1) m.dir=-1;
@@ -2317,7 +2367,7 @@ function labelControls(root){
 function render(){
   thisYM=todayISO().slice(0,7);shownDay=todayISO();
   fixUI();
-  try{refreshPairs();}catch(err){PT={};U.xl={};logErr(err);}
+  try{refreshPairs();}catch(err){PT={};FAM={};U.xl={};logErr(err);}
   document.querySelectorAll('nav button').forEach(function(b){var on=b.dataset.tab===U.tab;b.classList.toggle('on',on);if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');});
   var v={pat:viewPat,pm:viewPm,home:viewHome,mov:viewMov,bol:viewBol,rec:viewRec,acc:viewAcc,inv:viewInv,set:viewSet}[U.tab],html;
   try{if(U.tab==='pat') patAuto();html=v();}catch(err){logErr(err);html=viewError(err);}
@@ -2369,7 +2419,7 @@ function bridgeHtml(br,m){
   if(br.spe) rows+=r('Spese pagate nel mese (per data)',br.spe);
   if(br.risp) rows+=r('Risparmio / PAC',br.risp);
   if(br.gin||br.gout) rows+=r('Giroconti (soldi spostati)',g);
-  if(br.esc) rows+=r('Operazioni escluse dai conti',br.esc);
+  if(br.esc) rows+=r('Gestione straordinaria (fuori da entrate e spese)',br.esc);
   rows+=r(m===thisYM?'Saldo oggi':'Saldo a fine mese',br.close,'tot');
   return '<table class="brg"><tbody>'+rows+'</tbody></table>';
 }
@@ -2420,7 +2470,7 @@ function giroCard(a,m){
 }
 function suspectNow(){
   var bk={};S.tx.forEach(function(t){if(PT[t.id]&&t.c) bk[t.c]=1;});S.cats.forEach(function(c){if(c.t==='entrata'&&/giro|versament/i.test(c.n)) bk[c.id]=1;});
-  return suspectMoves(S.tx,{typeOf:effType,vers:function(t){return isVers(catById(t.c));},people:S.people||[],giroBucket:function(t){return !!bk[t.c];}},100000);
+  return suspectMoves(S.tx,{typeOf:effType,vers:function(t){return isVers(catById(t.c));},people:S.people||[],fam:FAM,links:U.xl,bigIn:BIGIN,bigSince:isoAdd(todayISO(),-120),giroBucket:function(t){return !!bk[t.c];}},100000);
 }
 var SUSWHY={
   nocat:'Senza categoria: finché non la scegli conta come entrata o spesa del mese.',
@@ -2428,23 +2478,24 @@ var SUSWHY={
   person:'La controparte è uno dei titolari: di solito è un giroconto, non una spesa o un’entrata.',
   'vers-out':'È un’uscita registrata tra i versamenti (entrate): di solito è un giroconto.',
   neg:'È un’uscita registrata in una categoria di entrata (es. «Giroconti personale»): nasconde una spesa vera. Se è una spesa scegli la sua categoria; se sono soldi passati tra i tuoi conti scegli «Giroconto».',
-  sign:'Il segno è opposto alla categoria (un incasso in una categoria di spesa): riduce le uscite del mese. Se è un’operazione straordinaria (es. vendita o acquisto di casa) scegli una categoria «Escluso dai conti».'
+  bigin:'Ingresso grande da un conto che l’app non vede (senza controparte tra i tuoi conti). Se è la vendita di un immobile o un’altra operazione straordinaria scegli «Operazione straordinaria»; se è un’entrata vera (es. un contributo) scegli «Entrata»; se sono soldi tuoi spostati da un altro conto lascialo come giroconto.',
+  sign:'Il segno è opposto alla categoria (un incasso in una categoria di spesa): riduce le uscite del mese. Se è un’operazione straordinaria (es. vendita o acquisto di casa) scegli una categoria «Gestione straordinaria e titoli».'
 };
 function checkCard(a,m){
   var sus=suspectNow(),tot=Object.keys(sus).length;
   var here=txFor({acct:a,month:m,cash:true}).filter(function(t){return sus[t.id];}).sort(function(x,y){return x.d<y.d?-1:x.d>y.d?1:(x.id<y.id?-1:1);});
   var others=tot-here.length;
-  if(!here.length) return others>0?'<div class="card"><p style="margin:0">Ci sono <b>'+nf(others)+'</b> '+(others===1?'movimento':'movimenti')+' da controllare in altri mesi o conti (possibili giroconti contati come spese o entrate). <button class="btn sm" data-act="chk-all">Vedi</button></p></div>':'';
+  if(!here.length) return others>0?'<div class="card"><p style="margin:0">Ci sono <b>'+nf(others)+'</b> '+(others===1?'movimento':'movimenti')+' da controllare in altri mesi o conti (possibili giroconti contati come spese o entrate, o ingressi grandi da classificare). <button class="btn sm" data-act="chk-all">Vedi</button></p></div>':'';
   var opts='<option value="">— da categorizzare —</option>'+catOptionsHtml(),gid=giroId();
   return '<div class="card" id="chkcard"><h2>Da controllare · possibili giroconti</h2>'+
-    '<p class="muted" style="margin:0 0 6px">Movimenti che pesano come spese o entrate del mese e possono falsare la Differenza. Se sono soldi spostati tra conti, segnali come giroconto; se sono un’operazione straordinaria, scegli una categoria «Escluso dai conti».</p>'+
+    '<p class="muted" style="margin:0 0 6px">Movimenti che pesano come spese o entrate del mese e possono falsare la Differenza. Se sono soldi spostati tra conti, segnali come giroconto; se sono un’operazione straordinaria, scegli una categoria «Gestione straordinaria e titoli».</p>'+
     '<div class="glt">'+here.slice(0,6).map(function(t){
       var pt=sus[t.id]==='nocat'&&t.m>0?passThrough(t,S.tx,effType,5):0,
         hint=pt>0&&pt>=0.8*t.m?'<div class="warnline">Nei giorni seguenti sono usciti '+eur(pt)+' verso altri conti: potrebbe essere un giroconto di passaggio, non un’entrata.</div>':'',
         ac=acctById(t.a),c=catById(t.c);
       return '<div class="gr"><div class="gd num muted">'+fd(t.d)+'</div><div class="gm"><div>'+esc(shortDesc(t.s)||'(senza descrizione)')+'</div><div class="muted gsub">'+esc(ac?ac.n:'')+(c?' · contato come «'+esc(c.n)+'»':'')+'</div>'+
         '<div class="warnline">'+esc(SUSWHY[sus[t.id]])+'</div>'+hint+
-        '<div class="gact">'+catSel(t,opts,'setcat-home')+(gid&&t.c!==gid?'<button class="btn sm" data-act="mk-giro" data-id="'+esc(t.id)+'">Segna come giroconto</button>':'')+'</div></div>'+
+        '<div class="gact">'+catSel(t,opts,'setcat-home')+(gid&&t.c!==gid?'<button class="btn sm" data-act="mk-giro" data-id="'+esc(t.id)+'">Segna come giroconto</button>':'')+((sus[t.id]==='bigin'||sus[t.id]==='sign')&&straoId()?'<button class="btn sm" data-act="mk-strao" data-id="'+esc(t.id)+'" title="Lo sposta in «'+esc(catById(straoId()).n)+'»: cambia il fondo cassa ma non conta né come entrata né come spesa">Operazione straordinaria</button>':'')+(sus[t.id]==='bigin'&&entrId()?'<button class="btn sm" data-act="mk-entr" data-id="'+esc(t.id)+'" title="Lo sposta in «'+esc(catById(entrId()).n)+'»: conta come entrata del mese">Entrata</button>':'')+'</div></div>'+
         '<div class="ga num '+(t.m<0?'bad':'good')+'">'+eurS(t.m)+'</div></div>';
     }).join('')+'</div>'+
     (here.length>6||others>0?'<div style="margin-top:8px"><button class="btn sm" data-act="chk-all">Vedi tutti i movimenti da controllare ('+nf(tot)+')</button></div>':'')+'</div>';
@@ -2474,7 +2525,7 @@ function giroKpi(a,m){
 function chkBanner(a,m){
   var sus=suspectNow(),n=txFor({acct:a,month:m,cash:true}).filter(function(t){return sus[t.id];}).length;
   if(!n) return '';
-  return '<div class="note warn" style="margin:0 0 12px">⚠ <b>'+nf(n)+'</b> '+(n===1?'movimento da controllare':'movimenti da controllare')+' in questo mese (possibili giroconti contati come spese o entrate): falsano la Differenza. <button class="btn sm" data-act="goto" data-to="chkcard">Vai al controllo</button></div>';
+  return '<div class="note warn" style="margin:0 0 12px">⚠ <b>'+nf(n)+'</b> '+(n===1?'movimento da controllare':'movimenti da controllare')+' in questo mese (possibili giroconti contati come spese o entrate, o ingressi grandi da classificare): falsano la Differenza. <button class="btn sm" data-act="goto" data-to="chkcard">Vai al controllo</button></div>';
 }
 function viewHome(){
   var m=U.month,a=U.acct;
@@ -2546,7 +2597,7 @@ function pmYears(){
 function viewPm(){
   var P=U.pm,types={};
   S.cats.forEach(function(c){types[c.id]=c.t;});
-  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT};
+  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM};
   var M=monthMatrix(S.tx,months,types,mopt),cutM=allMonths.filter(function(ym){return months.indexOf(ym)<0;});
   var Mcut=cutM.length?monthMatrix(S.tx,cutM,types,mopt):null;
   var nc=months.length;
@@ -2593,15 +2644,15 @@ function viewPm(){
   function catRows(g,type){
     var sk=P.sort,pi=/^m:/.test(sk)?pos[sk.slice(2)]:null;
     if(/^m:/.test(sk)&&pi==null) sk='tot';
-    var nmOf=function(k){var c=catById(k);return c?c.n:'Da categorizzare';};
+    var nmOf=function(k){var c=catById(k);return k==='__fam'?FAMNM:c?c.n:'Da categorizzare';};
     var keyOf=function(k){var a=g[k];return sk==='avg'?avgM.reduce(function(x,ym){return x+(a[pos[ym]]||0);},0):pi!=null?(a[pi]||0):tot(a);};
     var ks=Object.keys(g).filter(function(k){return tot(g[k])!==0;}).sort(function(a,b){
       if(sk==='name') return nmOf(a).localeCompare(nmOf(b),'it',{sensitivity:'base'});
       return keyOf(b)-keyOf(a)||tot(g[b])-tot(g[a])||nmOf(a).localeCompare(nmOf(b),'it',{sensitivity:'base'});
     });
     return ks.map(function(k){
-      var c=catById(k),nm=c?c.n:'Da categorizzare',bud=type==='spesa'&&c&&c.b?c.b:0;
-      return '<tr><td title="'+esc(nm)+(bud?' · budget '+esc(eur(bud))+' al mese':'')+'"><span class="dot" style="background:'+(c?sCol(c.col):'#9aa3b0')+'"></span> '+esc(nm)+'</td>'+cells(g[k],{cat:k,nm:nm,bud:bud})+'</tr>';
+      var c=catById(k),nm=k==='__fam'?FAMNM:c?c.n:'Da categorizzare',bud=type==='spesa'&&c&&c.b?c.b:0;
+      return '<tr><td title="'+esc(nm)+(k==='__fam'?' · bonifici di un familiare da conti che l’app non vede: non hanno una controparte tra i tuoi conti, quindi contano come entrate':'')+(bud?' · budget '+esc(eur(bud))+' al mese':'')+'"><span class="dot" style="background:'+(c?sCol(c.col):k==='__fam'?'var(--good)':'#9aa3b0')+'"></span> '+esc(nm)+'</td>'+cells(g[k],{cat:k,nm:nm,bud:bud})+'</tr>';
     }).join('');
   }
   var body='';
@@ -2620,46 +2671,60 @@ function viewPm(){
       cls=function(v){return v>0?'good':v<0?'bad':'';},
       vv=nz(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=nz(bs.bnd),qq=nz(bs.esc),
       from=mlabel(months[0]).replace(/ \d+$/,''),
-      vTot=tot(vv),mTot=tot(mm),bTot=tot(bb),qTot=tot(qq),lastI=-1;
+      vTot=tot(vv),mTot=tot(mm),bTot=tot(bb),qTot=tot(qq),lastI=-1,ids={},bigs,qrun=0;
+    bs.used.forEach(function(u){ids[u.id]=1;});
+    bigs=bigInflows(S.tx,U.xl,effType,BIGIN,ids);
     bs.start.forEach(function(v,i){if(v!=null) lastI=i;});
-    // una riga del «conto»: label, valori per mese; o = {neg, color, bold, muted, sum, click, tip}
+    var qprog=bs.esc.map(function(v){if(v==null) return null;qrun+=v;return qrun;});
+    // una riga del «conto»: label, valori per mese; o = {neg, color, bold, muted, sum, click: filtro dei movimenti, flag(ym), dash0, tip}
     var line=function(label,arr,o){
       var t=0,tds=months.map(function(ym,i){
         if(bs.start[i]==null) return '<td class="pmz'+cc(ym)+'">–</td>';
         var v=arr[i]*(o.neg?-1:1);t+=v;
-        if(!v&&!o.bold) return '<td class="pmz'+cc(ym)+'">–</td>';
-        var k=(o.color?cls(v):o.muted?'muted':'')+cc(ym)+(o.click&&v?' pmc':''),
-          tt=o.click&&v?(function(a){return ' data-act="pm-cell" data-ym="'+ym+'" data-cat="__giro" tabindex="-1" aria-label="'+a+'" title="'+a+'"';})(esc(label)+' · '+esc(mlabel(ym))+': apri i giroconti del mese'):'';
+        if(!v&&(!o.bold||o.dash0)) return '<td class="pmz'+cc(ym)+'">–</td>';
+        var big=!!(o.flag&&o.flag(ym)),
+          k=(o.color?cls(v):o.muted?'muted':'')+cc(ym)+(o.click&&v?' pmc':'')+(big?' bigf':''),
+          tt=o.click&&v?(function(a){return ' data-act="pm-cell" data-ym="'+ym+'" data-cat="'+o.click+'" tabindex="-1" aria-label="'+a+'" title="'+a+'"';})(esc(label)+' · '+esc(mlabel(ym))+': '+(o.click==='__esc'?'apri i movimenti della gestione straordinaria':'apri i giroconti del mese')+(big?' (c’è un ingresso grande da rivedere)':'')):'';
         return '<td class="'+k.trim()+'"'+tt+'>'+(o.plain?fmt0(v):sgn(v))+'</td>';
       }).join('');
       return '<tr'+(o.bold?' class="tot"':'')+(o.tip?' title="'+esc(o.tip)+'"':'')+'><td class="'+(o.muted?'muted ':'')+'wl">'+label+'</td>'+tds+
         (o.sum?'<td class="tc'+(o.color?' '+cls(t):'')+'">'+(t?sgn(t):'–')+'</td>':'<td class="tc pmz">–</td>')+'</tr>';
     };
-    var hd='<tr><th class="wl">Soldi sui conti</th>'+months.map(function(ym){return '<th class="'+cc(ym).trim()+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></th>';}).join('')+'<th class="tc">Totale</th></tr>';
+    var hd='<tr><th class="wl">Fondo cassa</th>'+months.map(function(ym){return '<th class="'+cc(ym).trim()+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></th>';}).join('')+'<th class="tc">Totale</th></tr>';
     var ledger=
-      line('Saldo a inizio mese',bs.start,{bold:true,plain:true,tip:'Quanto c’è sui conti il primo giorno del mese'})+
-      line('+ Entrate − spese',vv,{color:true,sum:true,tip:'Quanto avete incassato meno quanto avete speso nel mese (soldi veri, data di pagamento), senza giroconti e operazioni straordinarie. Se è negativo si intaccano i risparmi.'})+
-      line('− Messo in titoli / PAC',mm,{neg:true,muted:true,sum:true,tip:'Soldi usciti dal conto per titoli, PAC o polizze: restano vostri, ma non sono più sul conto'})+
-      line('+ Giroconti da conti non inclusi',bb,{muted:true,sum:true,click:true,tip:'Soldi arrivati da (o andati verso) conti che non sono in questo calcolo, per esempio un libretto: fanno salire il saldo ma non sono risparmio del mese. Clicca per vedere i giroconti.'})+
-      line('+ Operazioni straordinarie (es. casa)',qq,{muted:true,sum:true,tip:'Operazioni «escluse dai conti», come vendita o acquisto di una casa: cambiano il saldo ma non sono entrate né spese'})+
-      line('= Saldo a fine mese',bs.end,{bold:true,plain:true,tip:'È anche il saldo a inizio del mese dopo'})+
-      line('Risparmiato da '+esc(from)+' (progressivo)',bs.prog,{bold:true,color:true,tip:'Somma di «Entrate − spese» mese dopo mese: se sale state mettendo da parte, se scende state usando i risparmi'});
+      line('Fondo cassa a inizio mese',bs.start,{bold:true,plain:true,tip:'Quanto c’è sui conti inclusi il primo giorno del mese'})+
+      line('+ Gestione ordinaria (entrate − spese)',vv,{color:true,sum:true,tip:'Quanto avete incassato meno quanto avete speso nel mese (soldi veri, data di pagamento), senza giroconti, titoli e gestione straordinaria. Se è negativo si intaccano i risparmi.'})+
+      line('− Titoli e PAC',mm,{neg:true,muted:true,sum:true,tip:'Soldi usciti dai conti per titoli, PAC o polizze: restano vostri nel patrimonio, ma non sono più sui conti'})+
+      line('+ Gestione straordinaria (casa, riscatti)',qq,{muted:true,sum:true,click:'__esc',tip:'Movimenti di categorie di tipo «Gestione straordinaria e titoli», come vendita o acquisto di una casa o riscatti: cambiano il fondo cassa ma non sono entrate né spese. Clicca per vederli.'})+
+      line('+ Giroconti da conti non inclusi',bb,{muted:true,sum:true,click:'__giro',flag:function(ym){return !!bigs[ym];},tip:'Soldi arrivati da (o andati verso) conti che non sono in questo calcolo, per esempio un libretto: cambiano il fondo cassa ma non sono entrate né spese. Clicca per vedere i giroconti.'})+
+      line('= Fondo cassa a fine mese',bs.end,{bold:true,plain:true,tip:'È anche il fondo cassa a inizio del mese dopo'})+
+      line('Gestione ordinaria da '+esc(from)+' (progressivo)',bs.prog,{bold:true,color:true,tip:'Somma della gestione ordinaria mese dopo mese: se sale state mettendo da parte, se scende state usando i risparmi'})+
+      line('Gestione straordinaria da '+esc(from)+' (progressivo)',qprog,{bold:true,dash0:true,tip:'Saldo della gestione straordinaria mese dopo mese'});
     var upto=lastI>=0&&months[lastI]===thisYM?'a oggi':'fino a '+mlabel(months[Math.max(lastI,0)]),
       verdict='<p class="verdict"><b>Da '+esc(from)+' '+upto+' '+(vTot>=0?'le entrate hanno superato le spese di '+fmt0(vTot)+' € in totale: state mettendo da parte.':'le spese hanno superato le entrate di '+fmt0(-vTot)+' € in totale: state usando i risparmi.')+'</b>';
-    var why=[],dTot=lastI>=0?bs.end[lastI]-bs.start[0]:0;
-    if(bTot) why.push('sono '+(bTot>0?'arrivati ':'andati ')+fmt0(Math.abs(bTot))+' € '+(bTot>0?'da':'verso')+' conti non inclusi (giroconti)');
-    if(qTot) why.push('sono '+(qTot>0?'entrati ':'usciti ')+fmt0(Math.abs(qTot))+' € di operazioni straordinarie (es. casa)');
-    if(mTot) why.push('sono usciti '+fmt0(mTot)+' € per titoli/PAC (restano vostri, ma non sono più sul conto)');
-    if(lastI>=0) verdict+=' Il saldo dei conti è passato da '+fmt0(bs.start[0])+' € a '+fmt0(bs.end[lastI])+' € ('+sgn(dTot)+' €)'+(why.length?', che non coincide con quel risultato perché '+(why.length>1?why.slice(0,-1).join(', ')+' e '+why[why.length-1]:why[0]):', cioè lo stesso risultato')+'.';
+    var parts=[sgn(vTot)+' € gestione ordinaria'],dTot=lastI>=0?bs.end[lastI]-bs.start[0]:0;
+    if(mTot) parts.push(sgn(-mTot)+' € titoli e PAC');
+    if(qTot) parts.push(sgn(qTot)+' € gestione straordinaria');
+    if(bTot) parts.push(sgn(bTot)+' € giroconti da conti non inclusi');
+    if(lastI>=0) verdict+=' Il fondo cassa è passato da '+fmt0(bs.start[0])+' € a '+fmt0(bs.end[lastI])+' € ('+sgn(dTot)+' €): '+(parts.length>1?parts.slice(0,-1).join(', ')+' e '+parts[parts.length-1]:parts[0])+'.';
     verdict+='</p>';
-    bcard='<div class="card"><h2>Stiamo risparmiando? · saldo dei conti mese per mese</h2>'+verdict+
-      '<div class="scroll"><table class="pm pmx"><thead>'+hd+'</thead><tbody>'+ledger+'</tbody></table></div>'+
-      '<p class="note">Si legge in colonna: saldo a inizio mese, più o meno ciò che è successo, uguale saldo a fine mese. Qui contano i soldi veri (data di pagamento), quindi i numeri possono differire dalla «Differenza» della tabella sopra, che con «per competenza» ripartisce alcune spese. Conti inclusi: '+bs.used.map(function(u){return esc(u.n);}).join(', ')+'.'+
-      (bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return esc(u.n)+' ('+esc(u.why.replace(/(\d{4})-(\d{2})-(\d{2})/,'$3/$2/$1'))+')';}).join(', ')+' — per includerli imposta un loro saldo a una data precedente al primo mese mostrato.':'')+' Il mese in corso arriva a oggi.</p></div>';
+    // ingressi grandi tra i giroconti da conti non inclusi (es. l'incasso della vendita di un immobile): da classificare
+    var bigNote='';
+    months.forEach(function(ym){
+      var g=bigs[ym];
+      if(!g||ym>thisYM) return;
+      bigNote+='<div class="warnline bigline">'+esc(mlabel(ym))+': tra i giroconti da conti non inclusi '+(g.n===1?'c’è un ingresso':'ci sono '+g.n+' ingressi')+' da '+fmt0(g.sum)+' € (senza controparte tra i tuoi conti). Se è la vendita di un immobile o un’altra operazione straordinaria, categorizzalo come «Operazioni immobiliari»: passa nella riga «Gestione straordinaria»; se è un’entrata vera, scegli una categoria di entrata. <button type="button" class="btn sm" data-act="pm-cell" data-ym="'+ym+'" data-cat="__giro">Rivedi</button></div>';
+    });
+    bcard='<div class="card"><h2>Stiamo risparmiando? · fondo cassa mese per mese</h2>'+verdict+
+      '<div class="scroll"><table class="pm pmx"><thead>'+hd+'</thead><tbody>'+ledger+'</tbody></table></div>'+bigNote+
+      '<p class="note">Si legge in colonna: fondo cassa a inizio mese, più o meno ciò che è successo, uguale fondo cassa a fine mese. Il fondo cassa è la somma dei conti inclusi: '+bs.used.map(function(u){return esc(u.n);}).join(', ')+'.'+
+      (bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return esc(u.n)+' ('+esc(u.why)+')';}).join(', ')+'.'+(bs.skipped.some(function(u){return u.k==='ref';})?' Per includere un conto con movimenti imposta il suo saldo di riferimento a una data precedente al primo mese mostrato.':''):'')+
+      ' La gestione ordinaria (entrate − spese) conta i soldi veri, per data di pagamento, quindi può differire dalla «Differenza» della tabella sopra, che con «per competenza» ripartisce alcune spese. La gestione straordinaria raccoglie le categorie di tipo «Gestione straordinaria e titoli» (es. vendita o acquisto di una casa, riscatti): per metterci anche le spese di ristrutturazione, cambia il tipo di quella categoria in Impostazioni. Il mese in corso arriva a oggi.'+
+      (Object.keys(FAM).length?' I bonifici di un familiare da conti che l’app non vede (es. il coniuge) non sono giroconti: contano come entrate e sono dentro la gestione ordinaria.':'')+'</p></div>';
   }
   h+='<div class="card"><h2>Categorie per mese · '+(P.cash?'per data di pagamento':'per competenza')+'</h2><div class="scroll"><table class="pm"><thead>'+head+'</thead><tbody>'+body+'</tbody></table></div>'+
     (Mcut&&Mcut.count?'<p class="note">La tabella parte da '+esc(mlabel(months[0]))+', il primo mese con movimenti caricati. Restano fuori '+nf(Mcut.count)+(Mcut.count===1?' quota':' quote')+' di competenza di mesi precedenti (spese ripartite all’indietro).</p>':'')+
-    '<p class="note">Importi in euro, arrotondati. Clicca un importo per vedere i movimenti di quel mese e categoria; clicca il mese per aprirne la panoramica (quello in corso è evidenziato in azzurro). Le celle rosse superano il budget mensile della categoria (impostabile in Impostazioni). I giroconti (soldi spostati tra conti) e i movimenti esclusi non entrano nei totali: i giroconti li trovi in fondo alla tabella e, con la quadratura del saldo, nella Panoramica. La media usa i mesi completi, dal primo mese con dati. Un importo anomalo (es. l’acquisto della casa) falsa totali e medie: clicca la cella, seleziona quei movimenti e assegnali a una categoria di tipo «Escluso dai conti».</p></div>';
+    '<p class="note">Importi in euro, arrotondati. Clicca un importo per vedere i movimenti di quel mese e categoria; clicca il mese per aprirne la panoramica (quello in corso è evidenziato in azzurro). Le celle rosse superano il budget mensile della categoria (impostabile in Impostazioni). I giroconti (soldi spostati tra conti) e la gestione straordinaria non entrano nei totali: li trovi nella card «fondo cassa» qui sotto e, con la quadratura del saldo, nella Panoramica. La media usa i mesi completi, dal primo mese con dati. Un importo anomalo (es. l’acquisto della casa) falsa totali e medie: clicca la cella, seleziona quei movimenti e assegnali a una categoria di tipo «Gestione straordinaria e titoli».</p></div>';
   h+=bcard;
   return h;
 }
@@ -2678,7 +2743,7 @@ function viewMov(){
   return '<div class="card"><div class="toolbar">'+
     '<select data-chg="mv-acct"><option value="all">Tutti i conti</option>'+movAccounts().map(function(x){return opt(x.id,x.n,f.acct);}).join('')+'</select>'+
     '<input type="month" value="'+esc(f.month)+'" data-chg="mv-month" title="Mese (vuoto = tutti)"'+MLIM+'>'+
-    '<select data-chg="mv-cat"><option value="">Tutte le categorie</option>'+opt('_none','Da categorizzare',f.cat)+opt('__giro','Tutti i giroconti',f.cat)+opt('__chk','Da controllare (possibili giroconti)',f.cat)+withSel(catOptionsHtml(),f.cat)+'</select>'+
+    '<select data-chg="mv-cat"><option value="">Tutte le categorie</option>'+opt('_none','Da categorizzare',f.cat)+opt('__giro','Tutti i giroconti',f.cat)+opt('__fam','Versamenti da familiari (contano come entrate)',f.cat)+opt('__esc','Gestione straordinaria',f.cat)+opt('__chk','Da controllare (possibili giroconti)',f.cat)+withSel(catOptionsHtml(),f.cat)+'</select>'+
     '<input type="search" placeholder="Cerca…" value="'+esc(f.q)+'" data-inp="mv-q" style="flex:1;min-width:120px">'+
     '</div><div class="toolbar">'+
     (S.imps.length?'<select data-chg="mv-batch" title="Mostra solo i movimenti di una importazione"><option value="">Tutte le importazioni</option>'+S.imps.slice().sort(function(a,b){return b.at-a.at;}).map(function(b){return opt(b.id,batchLabel(b),f.batch);}).join('')+'</select>':'')+
@@ -2692,7 +2757,8 @@ function mvRow(t,showAcc,opts){
   if(t._p) pill='<span class="pill" title="Quota di competenza di '+esc(mlabel(t._p))+' su un movimento di '+esc(eur(t._tot))+' pagato il '+esc(fd(t.d))+'">quota di '+esc(mshort(t._p))+' · su '+esc(eur(t._tot))+'</span>';
   else if(t.al) pill='<span class="pill" title="'+esc(t.al.map(function(p){return mlabel(p[0])+': '+eur(p[1]);}).join(' · '))+'">ripartito su '+t.al.length+(t.al.length===1?' mese':' mesi')+'</span>';
   var xl=U.xl&&U.xl[t.id];
-  if(xl) pill+=(pill?' ':'')+'<span class="pill xf" title="'+esc(xferTitle(xl))+'">'+esc(xferLabel(t,xl))+'</span>';
+  if(FAM[t.id]) pill+=(pill?' ':'')+'<span class="pill good" title="Bonifico di un familiare da un conto che l’app non vede: non ha una controparte tra i tuoi conti, quindi conta come entrata">versamento da familiare · entrata</span>';
+  else if(xl) pill+=(pill?' ':'')+'<span class="pill xf" title="'+esc(xferTitle(xl))+'">'+esc(xferLabel(t,xl))+'</span>';
   return '<tr class="mvr'+(sel?' sel':'')+'"><td class="c-chk"><input type="checkbox" data-chg="mv-sel" data-id="'+esc(t.id)+'"'+(sel?' checked':'')+' aria-label="Seleziona il movimento"></td>'+
     '<td class="c-d num">'+fd(t.d)+'</td>'+
     '<td class="c-s"><div class="txd" title="'+esc(t.s)+'">'+esc(shortDesc(t.s)||'(senza descrizione)')+'</div><div class="txs"><span class="mobonly">'+esc(ac?ac.n:'?')+(pill?' · ':'')+'</span>'+pill+'</div>'+(t.n?'<div class="tnote" data-act="tx-note" data-id="'+esc(t.id)+'" title="Modifica la nota">📝 '+esc(t.n)+'</div>':'')+'</td>'+
@@ -3973,7 +4039,7 @@ function viewSet(){
   h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Categorie e budget mensile</h2><span class="grow"></span><button class="btn" data-act="set-cat-add">+ Categoria</button></div><div class="scroll"><table><tbody>'+
     TYPES.map(function(t){
       return sortCats(S.cats.filter(function(c){return c.t===t;})).map(function(c){return '<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:'+sCol(c.col)+';margin-right:8px"></span>'+esc(c.n)+(c.bol?' <span class="pill">bolletta</span>':'')+'</td><td class="muted">'+TL[t]+'</td><td class="right num">'+(c.b?eur(c.b):'—')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="set-cat-edit" data-id="'+esc(c.id)+'">✎</button> <button class="btn sm danger" data-act="set-cat-del" data-id="'+esc(c.id)+'">🗑</button></td></tr>';}).join('');
-    }).join('')+'</tbody></table></div><p class="note">Il budget compare come limite nelle barre della Panoramica. Giroconti e risparmio non contano come spesa.</p></div>';
+    }).join('')+'</tbody></table></div><p class="note">Il budget compare come limite nelle barre della Panoramica. Giroconti e risparmio non contano come spesa. Le categorie «Gestione straordinaria e titoli» (es. vendita o acquisto di casa, riscatti, anche i lavori di ristrutturazione se le sposti qui) non contano né come entrate né come spese: compaiono nel fondo cassa di «Per mese».</p></div>';
   h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Regole di categorizzazione ('+S.rules.length+')</h2><span class="grow"></span><button class="btn" data-act="rules-apply" title="Categorizza solo i movimenti senza categoria con tutte le regole">Riapplica ai non categorizzati</button><button class="btn" data-act="rule-add">+ Regola</button></div>'+
     '<p class="note" style="margin:0 0 8px">La prima regola che corrisponde vince; le nuove vanno in cima. Aggiungi anche il tuo nome come parola chiave per riconoscere i bonifici tra i tuoi conti (→ Giroconto).</p>'+
     '<details><summary>Mostra regole</summary><div class="scroll"><table><tbody>'+S.rules.map(function(r){var c=catById(r.c);return '<tr><td><code>'+esc(r.k)+'</code></td><td>'+esc(c?c.n:'(categoria eliminata)')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="rule-apply" data-id="'+esc(r.id)+'" title="Applica questa regola ai movimenti già caricati">Applica…</button> <button class="btn sm danger" data-act="rule-del" data-id="'+esc(r.id)+'">🗑</button></td></tr>';}).join('')+'</tbody></table></div></details></div>';
@@ -4046,6 +4112,8 @@ var H={
   'goto':function(el){var t=document.getElementById(el.dataset.to);if(t&&t.scrollIntoView) t.scrollIntoView({block:'start'});},
   'chk-all':function(){U.mv=mvDefaults();U.mv.cat='__chk';U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
   'mk-giro':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;}),g=giroId();if(t&&g){t.c=g;stamp(t);save();render();toast('Segnato come giroconto');}},
+  'mk-strao':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;}),c=straoId();if(!t) return;if(!c){toast('Manca una categoria «Gestione straordinaria e titoli»: creala in Impostazioni');return;}t.c=c;stamp(t);save();render();toast('Segnato come operazione straordinaria · '+catById(c).n);},
+  'mk-entr':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;}),c=entrId();if(!t) return;if(!c){toast('Manca una categoria di entrata: creala in Impostazioni');return;}t.c=c;stamp(t);save();render();toast('Segnato come entrata · '+catById(c).n);},
   'pm-cell':function(el){U.mv=mvDefaults();U.mv.month=el.dataset.ym;U.mv.cat=el.dataset.cat;U.mv.acct=U.pm.acct;U.mv.cash=U.pm.cash;U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
   'pm-month':function(el){U.month=el.dataset.ym;U.acct=U.pm.acct;U.tab='home';render();window.scrollTo(0,0);},
   'pat-add':function(){patModal();},
