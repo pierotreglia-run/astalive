@@ -649,6 +649,8 @@ function parseStatementMeta(rows,hdr){
         var desc=recs[0].d>=recs[recs.length-1].d,pick=null;
         recs.forEach(function(x){ if(!pick||x.d>pick.d||(x.d===pick.d&&!desc)) pick=x; });
         meta.fin=pick.b;meta.finCol=true;
+        var seenD={};recs.forEach(function(x){if(desc){if(!(x.d in seenD)) seenD[x.d]=x.b;}else seenD[x.d]=x.b;});
+        meta.daily=Object.keys(seenD).sort().map(function(d){return {d:d,m:Math.round(seenD[d]*100)};});
         if(!meta.to) meta.to=pick.d;
         if(!meta.from) meta.from=recs.reduce(function(m,x){return x.d<m?x.d:m;},recs[0].d);
       }
@@ -1142,6 +1144,7 @@ function monthMatrix(txs,months,types,opt){
     if(!o.firstD||t.d<o.firstD) o.firstD=t.d;
     if(t.c==='titoli'){var ti=idx[t.d.slice(0,7)];if(ti!=null) o.tit[ti]+=-t.m;}
     var ty=(opt.over&&opt.over[t.id])||(types&&types[t.c]?types[t.c]:(t.m<0?'spesa':'entrata'));
+    if(opt.titSpese&&t.c==='titoli'&&ty!=='giroconto') ty='spesa';   // gli acquisti di titoli del dossier contano come spese
     var parts=opt.cash?[{ym:t.d.slice(0,7),m:t.m}]:txParts(t);
     parts.forEach(function(p){if(!o.first||p.ym<o.first) o.first=p.ym;});
     if(ty==='giroconto'){var gi=idx[t.d.slice(0,7)];if(gi!=null){if(t.m>0) o.gin[gi]+=t.m;else o.gout[gi]+=-t.m;}return;}
@@ -1560,6 +1563,7 @@ function saneItem(k,x){
     if(typeof x.lnum==='string'&&x.lnum) o.lnum=x.lnum.slice(0,20);
     if('na' in x) o.na=sAnchor(x.na);
     if('pa' in x) o.pa=sAnchor(x.pa);
+    if(Array.isArray(x.cp)){o.cp=[];x.cp.forEach(function(c){var d=c&&fixISO(c.d);if(d&&typeof c.m==='number'&&isFinite(c.m)&&o.cp.length<400) o.cp.push({d:d,m:Math.round(c.m)});});}
     o.u=sTs(x.u);
     return o;
   case 'pat':
@@ -1869,7 +1873,7 @@ function balanceSeries(accts,txs,snapsOf,months,T,titCat,typeOf,links){
         if(!(l&&l.peer&&ids[l.pa])) b+=x.m;
       }
     });
-    var v=e-s+t+w-b-q;run+=v;
+    var v=e-s+w-b-q;run+=v;   // gli acquisti di titoli sono spese: restano dentro la gestione ordinaria
     o.start.push(s);o.end.push(e);o.tit.push(t);o.sv.push(w);o.bnd.push(b);o.esc.push(q);o.vari.push(v);o.prog.push(run);
   });
   return o;
@@ -2398,6 +2402,7 @@ function labelControls(root){
 }
 function render(){
   thisYM=todayISO().slice(0,7);shownDay=todayISO();
+  try{renderBanner();}catch(err){logErr(err);}
   fixUI();
   try{refreshPairs();}catch(err){PT={};FAM={};U.xl={};logErr(err);}
   document.querySelectorAll('nav button').forEach(function(b){var on=b.dataset.tab===U.tab;b.classList.toggle('on',on);if(on) b.setAttribute('aria-current','page'); else b.removeAttribute('aria-current');});
@@ -2629,7 +2634,7 @@ function pmYears(){
 function viewPm(){
   var P=U.pm,types={};
   S.cats.forEach(function(c){types[c.id]=c.t;});
-  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM};
+  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM,titSpese:true};
   var M=monthMatrix(S.tx,months,types,mopt),cutM=allMonths.filter(function(ym){return months.indexOf(ym)<0;});
   var Mcut=cutM.length?monthMatrix(S.tx,cutM,types,mopt):null;
   var nc=months.length;
@@ -2693,7 +2698,7 @@ function viewPm(){
   var dif=M.ent.map(function(v,i){return v-M.usc[i];});
   body+='<tr class="tot dif"><td>Differenza</td>'+months.map(function(ym,i){var v=dif[i];return v?'<td class="'+(v>0?'good':'bad')+'">'+(v>0?'+':'')+fmt0(v)+'</td>':'<td class="pmz">–</td>';}).join('')+
     '<td class="tc '+(tot(dif)>=0?'good':'bad')+'">'+(tot(dif)>0?'+':'')+fmt0(tot(dif))+'</td><td class="ta '+(aEnt-aUsc>=0?'good':'bad')+'">'+(aEnt-aUsc>0?'+':'')+fmt0(aEnt-aUsc)+'</td></tr>';
-  if(tot(M.rsp)||tot(M.tit)) body+=sec('Risparmio / PAC')+catRows(M.risp,'risparmio')+(tot(M.tit)?'<tr><td title="Acquisti di titoli (ETF, azioni…) dal dossier: sono risparmio, non una spesa. In parte coincidono con il PAC che arriva sul conto di investimento, quindi non vanno sommati alle righe sopra."><span class="dot" style="background:#b86bff"></span> Titoli acquistati (dossier)</td>'+cells(M.tit,{noheat:true})+'</tr>':'');
+  if(tot(M.rsp)) body+=sec('Risparmio / PAC')+catRows(M.risp,'risparmio');
   if(tot(M.gin)||tot(M.gout)) body+=sec('Giroconti · non inclusi nei totali')+'<tr><td>Arrivati da altri conti</td>'+cells(M.gin,{noheat:true})+'</tr><tr><td>Usciti verso altri conti</td>'+cells(M.gout,{noheat:true})+'</tr>';
   var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl),bcard='';
   if(bs){
@@ -2701,7 +2706,7 @@ function viewPm(){
       nz=function(arr){return arr.map(function(v){return v==null?0:v;});},
       cc=function(ym){return (ym===thisYM?' cur':'')+(ym>thisYM?' fut':'');},
       cls=function(v){return v>0?'good':v<0?'bad':'';},
-      vv=nz(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=nz(bs.bnd),qq=nz(bs.esc),
+      vv=nz(bs.vari),mm=nz(bs.sv),bb=nz(bs.bnd),qq=nz(bs.esc),
       from=mlabel(months[0]).replace(/ \d+$/,''),
       vTot=tot(vv),mTot=tot(mm),bTot=tot(bb),qTot=tot(qq),lastI=-1,ids={},bigs,qrun=0;
     bs.used.forEach(function(u){ids[u.id]=1;});
@@ -2725,8 +2730,8 @@ function viewPm(){
     var hd='<tr><th class="wl">Fondo cassa</th>'+months.map(function(ym){return '<th class="'+cc(ym).trim()+'"><span>'+mshort(ym)+'</span><small>'+ym.slice(2,4)+'</small></th>';}).join('')+'<th class="tc">Totale</th></tr>';
     var ledger=
       line('Fondo cassa a inizio mese',bs.start,{bold:true,plain:true,tip:'Quanto c’è sui conti inclusi il primo giorno del mese'})+
-      line('+ Gestione ordinaria (entrate − spese)',vv,{color:true,sum:true,tip:'Quanto avete incassato meno quanto avete speso nel mese (soldi veri, data di pagamento), senza giroconti, titoli e gestione straordinaria. Se è negativo si intaccano i risparmi.'})+
-      line('− Titoli e PAC',mm,{neg:true,muted:true,sum:true,tip:'Soldi usciti dai conti per titoli, PAC o polizze: restano vostri nel patrimonio, ma non sono più sui conti'})+
+      line('+ Gestione ordinaria (entrate − spese)',vv,{color:true,sum:true,tip:'Quanto avete incassato meno quanto avete speso nel mese (soldi veri, data di pagamento), senza giroconti e gestione straordinaria; gli acquisti di titoli contano come spese. Se è negativo si intaccano i risparmi.'})+
+      line('− Risparmio / PAC verso altri conti',mm,{neg:true,muted:true,sum:true,tip:'Soldi usciti per risparmio o PAC verso conti non inclusi in questo calcolo: restano vostri, ma non sono più sui conti. Gli acquisti di titoli del dossier non sono qui: contano tra le spese.'})+
       line('+ Gestione straordinaria (casa, riscatti)',qq,{muted:true,sum:true,click:'__esc',tip:'Movimenti di categorie di tipo «Gestione straordinaria e titoli», come vendita o acquisto di una casa o riscatti: cambiano il fondo cassa ma non sono entrate né spese. Clicca per vederli.'})+
       line('+ Giroconti da conti non inclusi',bb,{muted:true,sum:true,click:'__giro',flag:function(ym){return !!bigs[ym];},tip:'Soldi arrivati da (o andati verso) conti che non sono in questo calcolo, per esempio un libretto: cambiano il fondo cassa ma non sono entrate né spese. Clicca per vedere i giroconti.'})+
       line('= Fondo cassa a fine mese',bs.end,{bold:true,plain:true,tip:'È anche il fondo cassa a inizio del mese dopo'})+
@@ -2735,7 +2740,7 @@ function viewPm(){
     var upto=lastI>=0&&months[lastI]===thisYM?'a oggi':'fino a '+mlabel(months[Math.max(lastI,0)]),
       verdict='<p class="verdict"><b>Da '+esc(from)+' '+upto+' '+(vTot>=0?'le entrate hanno superato le spese di '+fmt0(vTot)+' € in totale: state mettendo da parte.':'le spese hanno superato le entrate di '+fmt0(-vTot)+' € in totale: state usando i risparmi.')+'</b>';
     var parts=[sgn(vTot)+' € gestione ordinaria'],dTot=lastI>=0?bs.end[lastI]-bs.start[0]:0;
-    if(mTot) parts.push(sgn(-mTot)+' € titoli e PAC');
+    if(mTot) parts.push(sgn(-mTot)+' € risparmio e PAC verso altri conti');
     if(qTot) parts.push(sgn(qTot)+' € gestione straordinaria');
     if(bTot) parts.push(sgn(bTot)+' € giroconti da conti non inclusi');
     if(lastI>=0) verdict+=' Il fondo cassa è passato da '+fmt0(bs.start[0])+' € a '+fmt0(bs.end[lastI])+' € ('+sgn(dTot)+' €): '+(parts.length>1?parts.slice(0,-1).join(', ')+' e '+parts[parts.length-1]:parts[0])+'.';
@@ -2804,6 +2809,7 @@ function mvRow(t,showAcc,opts){
     '<button class="btn sm danger" data-act="tx-del" data-id="'+esc(t.id)+'" title="Elimina">🗑</button></td></tr>';
 }
 function renderTxList(){
+  try{renderBanner();}catch(err){logErr(err);}
   refreshPairs();
   var f=U.mv,list=mvList(),have=toSet(list.map(function(t){return t.id;}));
   Object.keys(U.sel).forEach(function(id){if(!have[id]) delete U.sel[id];});
@@ -3236,7 +3242,7 @@ function impUpdateMode(){var m=imp.map;return !!m&&(m.cat>=0||m.cy>=0||m.comp>=0
 function impParse(){
   var r=parseRows(imp.rows,imp.hdr,imp.map,imp.invert);
   assignIds(r.items,imp.acct);
-  var byId={},byDC={},used={},exist=[],fresh=[],blocked=0,mine=[];
+  var byId={},byDC={},used={},exist=[],fresh=[],blocked=0,covered=0,mine=[];
   S.tx.forEach(function(t){
     byId[t.id]=t;
     if(t.a===imp.acct){mine.push(t);var k=t.d+'|'+t.m;(byDC[k]=byDC[k]||[]).push(t);}
@@ -3258,11 +3264,11 @@ function impParse(){
   var old=0;
   r.items.forEach(function(i){
     if(i._m) return;
-    if(S.del[i.id]>0&&!imp.o.reimp){blocked++;return;}
+    if(S.del[i.id]>0){if(!imp.o.reimp){blocked++;return;}if(splitCovered(imp.acct,i.d,i.cents)){blocked++;covered++;return;}}
     if(lo!=null&&i.d>=lo&&i.d<=hi){old++;return;}
     fresh.push(i);
   });
-  return {items:r.items,fresh:fresh,dup:r.items.length-fresh.length-old,skipped:r.skipped,exist:exist,old:old,blocked:blocked,lo:lo,hi:hi};
+  return {items:r.items,fresh:fresh,dup:r.items.length-fresh.length-old,skipped:r.skipped,exist:exist,old:old,blocked:blocked,covered:covered,lo:lo,hi:hi};
 }
 function impLabels(items){
   var by={},order=[];
@@ -3309,9 +3315,15 @@ function impExtra(head,colOpts,res){
     ck('o_old','Salta i movimenti nel periodo già importato su questo conto (evita doppioni)',o.skipOld)+'</div>';
   return h;
 }
+// un pagamento diviso con «Dividi in due categorie» è già rappresentato dalle sue parti (nota «Parte di un pagamento da X»): l'originale eliminato non va riportato indietro
+function splitCovered(a,d,cents){
+  var tag='Parte di un pagamento da '+eur(Math.abs(cents));
+  return S.tx.some(function(t){return t.a===a&&t.d===d&&String(t.n||'').indexOf(tag)>=0;});
+}
 function impSummary(res){
   var h='<b>'+nf(res.fresh.length)+'</b> nuovi · '+nf(res.dup)+' già presenti';
   if(res.blocked) h+=' (di cui '+nf(res.blocked)+' eliminati in precedenza: non tornano)';
+  if(res.covered) h+=' · '+nf(res.covered)+(res.covered===1?' è già rappresentato da un pagamento diviso in parti: non lo reimporto per non creare un doppione':' sono già rappresentati da pagamenti divisi in parti: non li reimporto per non creare doppioni');
   if(impUpdateMode()&&res.exist.length) h+=' · '+nf(res.exist.length)+' riconosciuti, verranno aggiornati con categorie/competenza';
   if(res.old) h+=' · '+nf(res.old)+' saltati perché nel periodo già importato ('+fd(res.lo)+' – '+fd(res.hi)+')';
   h+=' · '+nf(res.skipped)+' righe scartate (intestazioni/totali)';
@@ -3334,6 +3346,7 @@ function doImport(){
   if(!acc){toast('Scegli un conto');return false;}
   if(acctMismatch(acc,mt)&&!confirm('Il file sembra di un altro conto (…'+idTail(mt)+') rispetto a «'+acc.n+'» (…'+idTail(acc)+'). Importare comunque?')) return false;
   var batch={id:'p'+uid(),a:imp.acct,f:imp.fname,at:now,n:0,k:imp.map.cat>=0?'cl':'ec'};
+  if(mt.daily&&mt.daily.length) batch.cp=mt.daily.slice(-400);   // saldi di fine giornata dell'estratto, per il controllo di quadratura
   if(mt.iban&&!acc.iban){acc.iban=mt.iban;stamp(acc);batch.liban=mt.iban;}
   if(mt.num&&!acc.num){acc.num=mt.num;stamp(acc);batch.lnum=mt.num;}
   S.people=S.people||[];
@@ -3393,8 +3406,10 @@ function doImport(){
     }
   }
   if(!added&&!upd&&!learned&&!made){
-    applyOwnTransfers();save();if(anchored) render();
-    toast('Nessun movimento nuovo da importare'+(anchored?' · saldo aggiornato':''));
+    var attached=false;   // estratto già importato in passato: registro comunque i suoi saldi giornalieri per il controllo
+    if(mt.daily&&mt.daily.length){var eb=S.imps.filter(function(b){return b.a===acc.id&&b.f===imp.fname;})[0];if(eb){eb.cp=mt.daily.slice(-400);stamp(eb);attached=true;}}
+    applyOwnTransfers();save();if(anchored||attached) render();
+    toast('Nessun movimento nuovo da importare'+(anchored?' · saldo aggiornato':'')+(attached?' · saldi dell’estratto registrati per il controllo':''));
     return false;
   }
   if(added){batch.n=added;stamp(batch);S.imps.push(batch);}
@@ -3878,7 +3893,7 @@ function viewAcc(){
     body+=row({name:'Buoni fruttiferi postali',bank:'Poste Italiane',val:'<div class="av num">'+eur(Math.round(bfS.val))+'</div><div class="muted sm">valore oggi stimato (lordo)</div>',
       info:'<div>'+bfS.n+(bfS.n===1?' buono':' buoni')+' · versato '+eur(bfS.cost)+'</div><div class="muted sm">netto stimato '+eur(Math.round(bfS.net))+'</div>',btn:'<button class="btn sm" data-act="tab" data-tab="inv">Apri dettaglio</button>'});
   }
-  return '<div class="kpi" style="margin-bottom:14px"><div class="lbl">Liquidità e risparmi totali</div><div class="val">'+eur(total)+'</div><div class="sub">somma dei conti con saldo impostato, dossier titoli'+(bfS?' e buoni postali':'')+' compresi (valori lordi)</div></div>'+
+  return ecCard()+'<div class="kpi" style="margin-bottom:14px"><div class="lbl">Liquidità e risparmi totali</div><div class="val">'+eur(total)+'</div><div class="sub">somma dei conti con saldo impostato, dossier titoli'+(bfS?' e buoni postali':'')+' compresi (valori lordi)</div></div>'+
     '<div class="card acard"><div class="scroll"><table class="acct"><thead><tr><th scope="col">Conto</th><th scope="col" class="r">Saldo</th><th scope="col">Dati aggiornati</th><th scope="col"><span class="sr">Azioni</span></th></tr></thead><tbody>'+body+'</tbody></table></div></div>';
 }
 function balModal(id,snapId){
@@ -4364,7 +4379,7 @@ function xlYmDate(ym){return ym+'-01';}
 async function exportPmXlsx(){
   var P=U.pm,types={};
   S.cats.forEach(function(c){types[c.id]=c.t;});
-  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM};
+  var allMonths=pmMonths(P.range,thisYM),months=trimMonths(allMonths,firstMoveYM(S.tx,P.acct)),mopt={acct:P.acct,cash:P.cash,over:PT,fam:FAM,titSpese:true};
   var M=monthMatrix(S.tx,months,types,mopt);
   if(!S.tx.length||!M.count){toast('Niente da esportare: nessun movimento nel periodo scelto');return;}
   var nc=months.length,avgM=pmAvgMonths(months,M.first,thisYM,M.firstD),pos={};
@@ -4465,15 +4480,10 @@ async function exportPmXlsx(){
   sh.f(r,cA,cl(cA)+eTot+'-'+cl(cA)+sTot,eu(avgM.length?avgM.reduce(function(s,ym){return s+(dif[pos[ym]]||0);},0)/avgM.length:0),totN('',XLNF0S,XLC.good));
   sh.set(r,cB,null,totN('',XLNF0));
   sh.height(r,20);r++;
-  // risparmio e titoli
-  if(sum(M.rsp)||sum(M.tit)){
+  // risparmio / PAC (gli acquisti di titoli del dossier sono già tra le spese)
+  if(sum(M.rsp)){
     section('Risparmio / PAC');
     catRows(M.risp,'risparmio',false);
-    if(sum(M.tit)){
-      sh.set(r,1,'Titoli acquistati (dossier) · non sommare alle righe sopra',mutL);
-      months.forEach(function(ym,i){sh.set(r,c1+i,eu(M.tit[i]||0),cellS(ym,{i:1,color:XLC.muted}));});
-      tail(r,M.tit,cellS('',{i:1,color:XLC.muted}));sh.set(r,cB,null,cellS('',{}));r++;
-    }
   }
   // giroconti
   if(sum(M.gin)||sum(M.gout)){
@@ -4508,7 +4518,7 @@ async function exportPmXlsx(){
     sh.set(r,cT,'Totale',hRt);sh.fillRow(r,cA,last,hRt);sh.height(r,22);r++;
     var has=function(i){return bs.start[i]!=null;},
       z=function(a){return a.map(function(v){return v==null?0:v;});},
-      vv=z(bs.vari),mm=bs.tit.map(function(v,i){return v==null?0:v+bs.sv[i];}),bb=z(bs.bnd),qq=z(bs.esc);
+      vv=z(bs.vari),mm=z(bs.sv),bb=z(bs.bnd),qq=z(bs.esc);
     var rS=r,rO=r+1,rT=r+2,rQ=r+3,rG=r+4,rE=r+5,rP=r+6,rPQ=r+7;
     // una riga: label, valori (centesimi) per mese; opts = {neg, st, bold, color, total}
     function ledger(row,label,arr,o){
@@ -4530,7 +4540,7 @@ async function exportPmXlsx(){
     var prog=bs.prog.map(function(v){return v==null?0:v;}),qrun=0,qprog=bs.esc.map(function(v){if(v==null) return 0;qrun+=v;return qrun;});
     ledger(rS,'Fondo cassa a inizio mese',startArr,{bold:true,nf:XLNF0});
     ledger(rO,'+ Gestione ordinaria (entrate − spese)',vv,{total:true,color:1});
-    ledger(rT,'− Titoli e PAC',mm,{neg:true,muted:true,total:true});
+    ledger(rT,'− Risparmio / PAC verso altri conti',mm,{neg:true,muted:true,total:true});
     ledger(rQ,'+ Gestione straordinaria (casa, riscatti)',qq,{muted:true,total:true});
     ledger(rG,'+ Giroconti da conti non inclusi',bb,{muted:true,total:true});
     ledger(rE,'= Fondo cassa a fine mese',endArr,{bold:true,nf:XLNF0,formula:function(L,i){return L+rS+'+'+L+rO+'+'+L+rT+'+'+L+rQ+'+'+L+rG;}});
@@ -4542,7 +4552,7 @@ async function exportPmXlsx(){
     r=rPQ+1;
     var sgnTot=0;months.forEach(function(ym,i){if(has(i)) sgnTot+=vv[i];});
     notes.push('Fondo cassa = somma dei conti inclusi: '+bs.used.map(function(u){return u.n+(u.noRef?' (senza saldo di riferimento)':'');}).join(', ')+'.'+(bs.used.some(function(u){return u.noRef;})?' Per i conti senza saldo di riferimento il livello del fondo cassa non comprende il loro saldo di partenza, ma entrate, spese e gestione ordinaria sono corrette.':'')+(bs.skipped.length?' Non inclusi: '+bs.skipped.map(function(u){return u.n+' ('+u.why+')';}).join(', ')+'.':''));
-    notes.push('La gestione ordinaria (entrate − spese) conta i soldi veri, per data di pagamento, quindi può differire dalla «Differenza» della tabella sopra se è attivo il criterio «per competenza». Fondo cassa a fine mese = inizio mese + gestione ordinaria − titoli e PAC + gestione straordinaria + giroconti da conti non inclusi.');
+    notes.push('La gestione ordinaria (entrate − spese) conta i soldi veri, per data di pagamento, quindi può differire dalla «Differenza» della tabella sopra se è attivo il criterio «per competenza». Fondo cassa a fine mese = inizio mese + gestione ordinaria − risparmio/PAC verso altri conti + gestione straordinaria + giroconti da conti non inclusi. Gli acquisti di titoli del dossier sono tra le spese, quindi dentro la gestione ordinaria.');
   }
   notes.push('Le celle in rosso superano il budget mensile della categoria (colonna Budget, impostabile nell’app). Totali e medie sono formule: la media usa i mesi completi, dal primo mese con dati. I giroconti (soldi spostati tra conti) e la gestione straordinaria non entrano nei totali di entrate e spese.');
   r+=1;
@@ -4619,7 +4629,7 @@ async function exportExploreXlsx(){
   var rows=[];
   S.tx.forEach(function(t){
     if(!t||!t.d) return;
-    var ty=effType(t),c=catById(t.c),xl=U.xl&&U.xl[t.id],tl=(t.c==='titoli')?'Titoli':(TY[ty]||''),parts=P.cash?[{ym:t.d.slice(0,7),m:t.m}]:txParts(t);
+    var ty=effType(t),c=catById(t.c),xl=U.xl&&U.xl[t.id],tl=(t.c==='titoli'&&ty!=='giroconto')?'Spesa':(TY[ty]||''),parts=P.cash?[{ym:t.d.slice(0,7),m:t.m}]:txParts(t);
     parts.forEach(function(p){
       var det=[];
       if(parts.length>1) det.push('quota di '+mlabel(p.ym)+' su '+(t.m/100).toFixed(2).replace('.',',')+' €');
@@ -4713,7 +4723,7 @@ async function exportExploreXlsx(){
   var tE=E.reduce(function(s,v){return s+v;},0),tD=Df.reduce(function(s,v){return s+v;},0);
   shR.f(8,cT,'IF('+cl(cT)+'5=0,"",'+cl(cT)+'7/'+cl(cT)+'5)',tE?tD/tE:'',b.style({nf:'0%;[Red]-0%',h:'right',i:1,color:XLC.muted}));
   var rn=b.style({sz:9,color:XLC.muted,v:'top',wrap:1,indent:1});
-  shR.set(10,1,'Entrate e spese sono quelle “vere”: giroconti tra conti, risparmio/PAC e gestione straordinaria non sono comprese (le trovi per tipo nel foglio Categorie). La media considera i mesi completi (il mese in corso è escluso). Tutti i numeri sono formule sul foglio Movimenti: se cambi una categoria o un importo là, si aggiornano.',rn).merge(10,1,10,cA).height(10,40);
+  shR.set(10,1,'Entrate e spese sono quelle “vere”: giroconti tra conti, risparmio/PAC e gestione straordinaria non sono comprese (le trovi per tipo nel foglio Categorie). Gli acquisti di titoli del dossier contano come spese. La media considera i mesi completi (il mese in corso è escluso). Tutti i numeri sono formule sul foglio Movimenti: se cambi una categoria o un importo là, si aggiornano.',rn).merge(10,1,10,cA).height(10,40);
   shR.freeze(5,3);
 
   // --- foglio Categorie: elenco piatto, filtrabile e ordinabile ---
@@ -4802,9 +4812,144 @@ async function exportExploreXlsx(){
   toast('Excel esportato: '+nf(cats.length)+' categorie, '+nf(NR)+' movimenti');
 }
 
+// ===== Quadratura dei saldi con gli estratti conto =====
+// Ogni estratto conto dice quanto c'era sul conto a una certa data. Tra due saldi consecutivi i movimenti registrati devono sommare
+// esattamente la differenza: se non succede, c'è un movimento di troppo (doppione), uno mancante (o eliminato per errore) oppure un saldo sbagliato.
+// Punti di controllo: saldo finale e precedente di ogni importazione, saldi giornalieri letti dalla colonna saldo del file (cp) e saldo di riferimento del conto.
+function ecPoints(acc){
+  var pts={};
+  var imps=(S.imps||[]).filter(function(b){return b.a===acc.id;}).sort(function(a,b){return (a.at||0)-(b.at||0);});
+  // eod = saldo a fine giornata (dopo i movimenti di quel giorno); false = giorno ambiguo (saldo «iniziale»), si prova in entrambi i modi
+  function put(d,m,eod){
+    if(!d||typeof m!=='number'||!isFinite(m)) return;
+    var o=pts[d];
+    if(o&&o.eod&&!eod) return;
+    pts[d]={d:d,m:m,eod:eod};
+  }
+  imps.forEach(function(b){
+    if(b.pa) put(b.pa.d,b.pa.m,false);
+    (b.cp||[]).forEach(function(c){put(c.d,c.m,true);});
+    if(b.na) put(b.na.d,b.na.m,true);
+  });
+  if(acc.anchor) put(acc.anchor.d,acc.anchor.m,true);
+  return Object.keys(pts).sort().map(function(k){return pts[k];});
+}
+function ecSum(txs,d1,inc1,d2,inc2){
+  var s=0;
+  txs.forEach(function(t){
+    if((inc1?t.d>=d1:t.d>d1)&&(inc2?t.d<=d2:t.d<d2)) s+=t.m;
+  });
+  return s;
+}
+// pagamenti divisi con «Dividi in due categorie» (nota «Parte di un pagamento da X»): le parti devono sommare X e il pagamento intero non deve esserci ancora
+function ecSplits(){
+  var g={},out=[];
+  S.tx.forEach(function(t){
+    var tags=String(t.n||'').match(/Parte di un pagamento da [\d.]+,\d{2}\s*€/g);
+    if(!tags||tags.length!==1) return;      // parti divise ancora una volta: non le giudico
+    var tot=Math.round(parseFloat(tags[0].replace(/^.*da /,'').replace(/\s*€$/,'').replace(/\./g,'').replace(',','.'))*100),k=t.a+'|'+t.d+'|'+tot+'|'+(t.m<0?'-':'+');
+    (g[k]||(g[k]={a:t.a,d:t.d,tot:tot,neg:t.m<0,parts:[]})).parts.push(t);
+  });
+  Object.keys(g).forEach(function(k){
+    var x=g[k],sum=x.parts.reduce(function(a,t){return a+Math.abs(t.m);},0);
+    var whole=S.tx.filter(function(t){return t.a===x.a&&t.d===x.d&&Math.abs(t.m)===x.tot&&(t.m<0)===x.neg&&!/Parte di un pagamento/.test(t.n||'');});
+    if(sum>x.tot||whole.length) out.push({a:x.a,d:x.d,tot:x.tot,sum:sum,parts:x.parts,whole:whole});
+  });
+  return out;
+}
+// per ogni conto con movimenti: periodi tra due saldi consecutivi, con lo scarto (movimenti registrati − variazione dell'estratto)
+function ecCheck(){
+  var out={accts:[],bad:[],splits:[]},pref={start:0,end:0};
+  var data=[];
+  (S.accounts||[]).forEach(function(a){
+    if(!a||a.mode!=='mov') return;
+    var pts=ecPoints(a),mine=S.tx.filter(function(t){return t.a===a.id;}),x={a:a,pts:pts,ivs:[],single:pts.length<2};
+    for(var i=0;i+1<pts.length;i++){
+      var p1=pts[i],p2=pts[i+1],exp=p2.m-p1.m,hi=p2.eod?[true]:[true,false],rd=[];
+      var lo=p1.eod?[false]:[false,true];
+      lo.forEach(function(l){hi.forEach(function(h){rd.push({lo:l,hi:h,reg:ecSum(mine,p1.d,l,p2.d,h)});});});
+      rd.forEach(function(r){r.diff=r.reg-exp;});
+      // il giorno del saldo «iniziale» è ambiguo: se altrove un periodo quadra solo in una lettura, uso quella ovunque
+      if(!p1.eod&&rd.length>1){
+        var e=rd.filter(function(r){return !r.lo&&r.hi;})[0],sd=rd.filter(function(r){return r.lo&&r.hi;})[0];
+        if(e&&sd){if(sd.diff===0&&e.diff!==0) pref.start++;else if(e.diff===0&&sd.diff!==0) pref.end++;}
+      }
+      data.push({x:x,mine:mine,p1:p1,p2:p2,exp:exp,rd:rd});
+    }
+    out.accts.push(x);
+  });
+  data.forEach(function(d){
+    var best=null,amb=d.rd.length>1&&!d.p1.eod;
+    d.rd.forEach(function(r){if(!best||Math.abs(r.diff)<Math.abs(best.diff)) best=r;});
+    if(amb&&best.diff!==0&&(pref.start||pref.end)){
+      var want=pref.start>=pref.end?d.rd.filter(function(r){return r.lo&&r.hi;})[0]:d.rd.filter(function(r){return !r.lo&&r.hi;})[0];
+      if(want) best=want;
+    }
+    var p1=d.p1,p2=d.p2,iv={p1:p1,p2:p2,exp:d.exp,reg:best.reg,diff:best.diff,ok:best.diff===0,cands:[],implied:p2.m-best.reg};
+    if(!iv.ok){
+      d.mine.forEach(function(t){
+        if((best.lo?t.d>=p1.d:t.d>p1.d)&&(best.hi?t.d<=p2.d:t.d<p2.d)&&t.m===best.diff){
+          var twin=d.mine.some(function(u){return u!==t&&u.d===t.d&&u.m===t.m;});
+          iv.cands.push({t:t,twin:twin});
+        }
+      });
+      iv.cands.sort(function(a,b){return (b.twin?1:0)-(a.twin?1:0)||(a.t.d<b.t.d?-1:1);});
+      out.bad.push({a:d.x.a,iv:iv});
+    }
+    d.x.ivs.push(iv);
+  });
+  out.splits=ecSplits();
+  return out;
+}
+function ecCard(){
+  var r=ecCheck(),rows='',nOk=0,nBad=r.bad.length;
+  if(!r.accts.length) return '';
+  r.accts.forEach(function(x){
+    var h='<div class="ecacc" style="margin-top:12px"><div class="ecname"><b>'+esc(x.a.n)+'</b></div>';
+    if(x.single){
+      h+='<div class="muted sm">'+(x.pts.length?'Un solo saldo noto ('+fd(x.pts[0].d)+': '+eur(x.pts[0].m)+'): per quadrarlo servono altri estratti conto di questo conto, importati uno dopo l’altro.':'Nessun saldo di estratto conto registrato: importa un estratto per poter controllare.')+'</div></div>';
+      rows+=h;return;
+    }
+    x.ivs.forEach(function(iv){
+      var span='dal '+fd(iv.p1.d)+' al '+fd(iv.p2.d);
+      if(iv.ok){nOk++;h+='<div class="ecok sm"><span class="good">✓</span> '+span+': quadra (variazione '+eurS(iv.exp)+')</div>';return;}
+      var more=iv.diff>0,amt=eur(Math.abs(iv.diff));
+      h+='<div class="ecbad"><div><span class="warn">⚠</span> <b>'+span+' non quadra di '+amt+'.</b> Secondo gli estratti il saldo varia di '+eurS(iv.exp)+', i movimenti registrati sommano '+eurS(iv.reg)+': ci sono '+amt+(more?' in più':' in meno')+'.</div>'+
+        '<ul class="eclist">';
+      if(iv.cands.length){
+        h+='<li>'+(more?'Un movimento di '+eurS(iv.diff)+' di troppo':'Un’uscita di '+amt+' di troppo')+' (doppione?): '+iv.cands.slice(0,4).map(function(c){return '<b>'+fd(c.t.d)+'</b> '+esc((shortDesc(c.t.s)||'').slice(0,46))+(c.twin?' <span class="pill warn">c’è un gemello identico</span>':'');}).join(' · ')+'.</li>';
+      }
+      h+='<li>Oppure '+(more?'manca un’uscita di '+amt:'manca un’entrata di '+amt)+' (non presente nell’estratto importato, oppure eliminata per errore: reimporta l’estratto con «Reimporta anche i movimenti eliminati in precedenza»).</li>'+
+        '<li>Oppure il saldo di partenza del '+fd(iv.p1.d)+' non è giusto: con questi movimenti dovrebbe essere '+eur(iv.implied)+' invece di '+eur(iv.p1.m)+'.</li></ul>'+
+        '<button type="button" class="btn sm" data-act="ec-open" data-id="'+esc(x.a.id)+'">Apri i movimenti di questo conto</button></div>';
+    });
+    rows+=h+'</div>';
+  });
+  var sp='';
+  r.splits.forEach(function(x){
+    var ac=acctById(x.a),nm=ac?ac.n:'';
+    sp+='<div class="ecbad" style="margin-top:8px"><div><span class="warn">⚠</span> <b>'+esc(nm)+' · '+fd(x.d)+': pagamento da '+eur(x.tot)+' diviso in parti che non tornano.</b> '+
+      (x.sum>x.tot?'Le parti sommano '+eur(x.sum)+', cioè '+eur(x.sum-x.tot)+' in più.':'')+(x.whole.length?' Esiste ancora anche il movimento intero da '+eur(x.tot)+': è un doppione delle sue parti.':'')+'</div><ul class="eclist">'+
+      x.whole.map(function(t){return '<li>Movimento intero '+eurS(t.m)+' '+esc((shortDesc(t.s)||'').slice(0,40))+' <button type="button" class="btn sm danger" data-act="ec-del" data-id="'+esc(t.id)+'">Elimina il movimento intero</button></li>';}).join('')+
+      (x.sum>x.tot?x.parts.map(function(t){return '<li>Parte '+eurS(t.m)+' <button type="button" class="btn sm" data-act="ec-del" data-id="'+esc(t.id)+'">Elimina questa parte</button></li>';}).join(''):'')+
+      '</ul></div>';
+  });
+  if(sp) rows+='<div class="ecacc" style="margin-top:14px"><div class="ecname"><b>Pagamenti divisi</b></div>'+sp+'</div>';
+  var nSp=r.splits.length;
+  var head=(nBad||nSp)?'<span class="warn">⚠</span> <b>'+(nBad?nf(nBad)+(nBad===1?' periodo non quadra':' periodi non quadrano')+' con gli estratti conto':'')+(nBad&&nSp?' · ':'')+(nSp?nf(nSp)+(nSp===1?' pagamento diviso non torna':' pagamenti divisi non tornano'):'')+'.</b>':'<span class="good">✓</span> <b>I saldi quadrano con gli estratti conto caricati.</b>';
+  return '<div class="card"><h2>Quadratura con gli estratti conto</h2><p class="verdict">'+head+'</p>'+rows+
+    '<p class="note">Per ogni conto confronto i saldi scritti negli estratti con i movimenti registrati tra due saldi consecutivi: devono sommare esattamente la differenza. Un movimento duplicato, mancante o eliminato per errore fa scattare l’avviso e ti indica il periodo e l’importo. Quando importi un estratto che ha la colonna saldo, registro anche i saldi di ogni giorno, così il controllo diventa più preciso.</p></div>';
+}
+
 // ===== Eventi =====
 var H={
   tab:function(el){U.tab=el.dataset.tab;render();window.scrollTo(0,0);},
+  'ec-del':function(el){
+    var t=S.tx.find(function(x){return x.id===el.dataset.id;});if(!t) return;
+    if(!confirm('Eliminare questo movimento?\n'+fd(t.d)+' · '+shortDesc(t.s)+' · '+eurS(t.m)+(t.n?'\nNota: '+t.n:'')+'\n\nNon tornerà con un nuovo import.')) return;
+    deleteTx([t.id],true);render();toast('Movimento eliminato');
+  },
+  'ec-open':function(el){U.mv=mvDefaults();U.mv.acct=el.dataset.id;U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
   'giro-all':function(){U.mv=mvDefaults();U.mv.acct=U.acct;U.mv.month=U.month;U.mv.cat='__giro';U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
   'home-cat':function(el){U.mv=mvDefaults();U.mv.month=el.dataset.ym;U.mv.cat=el.dataset.cat;U.mv.acct=U.acct;U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
   'goto':function(el){var t=document.getElementById(el.dataset.to);if(t&&t.scrollIntoView) t.scrollIntoView({block:'start'});},
@@ -5101,6 +5246,8 @@ function renderBanner(){
   }
   var bd=(saveErr||bootNote||ovf)?null:backupDue();
   if(bd) h+='<div class="bn" role="status">'+(bd.last?'Hai scaricato l’ultimo backup '+nf(bd.days)+(bd.days===1?' giorno fa.':' giorni fa.'):'Non hai ancora scaricato un backup.')+' I dati stanno solo in questo browser: se lo pulisci o cambi dispositivo si perdono. <button class="btn sm" data-act="export">Scarica un backup</button><button class="btn sm" data-act="bk-later">Più tardi</button></div>';
+  var ec=ecCheck();
+  if(ec.bad.length||ec.splits.length) h+='<div class="bn bad" role="alert"><b>I saldi non quadrano con gli estratti conto:</b> '+ec.bad.slice(0,3).map(function(x){return esc(x.a.n)+' (dal '+fd(x.iv.p1.d)+' al '+fd(x.iv.p2.d)+': '+eurS(x.iv.diff)+')';}).join(', ')+(ec.bad.length>3?' e altri':'')+(ec.splits.length?(ec.bad.length?' · ':'')+nf(ec.splits.length)+(ec.splits.length===1?' pagamento diviso non torna':' pagamenti divisi non tornano'):'')+'. <button class="btn sm" data-act="tab" data-tab="acc">Vedi i dettagli</button></div>';
   el.innerHTML=h;
 }
 // tabella «per mese»: frecce, Home/Fine; Invio o Spazio aprono i movimenti della cella
