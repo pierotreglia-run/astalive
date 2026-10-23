@@ -301,6 +301,12 @@ input[readonly]:focus{outline:0}
 
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .acard{padding:0;overflow:hidden}
+details.msel{position:relative}
+details.msel>summary{list-style:none;cursor:pointer;font-size:13.5px;color:var(--ink);background:var(--card);border:1px solid var(--ctl);border-radius:8px;padding:5px 26px 5px 9px;white-space:nowrap;user-select:none}
+details.msel>summary::-webkit-details-marker{display:none}
+details.msel>summary::after{content:'▾';position:absolute;right:9px;top:50%;transform:translateY(-50%);font-size:11px;color:var(--muted)}
+details.msel .mselp{position:absolute;z-index:30;top:calc(100% + 4px);left:0;min-width:230px;display:grid;gap:8px;padding:10px 12px;background:var(--card);border:1px solid var(--ctl);border-radius:10px;box-shadow:0 8px 24px rgba(17,43,77,.18)}
+@media (max-width:700px){details.msel>summary{font-size:16px}}
 table.acct{width:100%;border-collapse:collapse;font-size:13.5px}
 table.acct th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:9px 14px;border-bottom:1px solid var(--line);white-space:nowrap}
 table.acct th.r{text-align:right}
@@ -1140,7 +1146,7 @@ function monthMatrix(txs,months,types,opt){
   function add(g,key,i,v){(g[key]||(g[key]=z()))[i]+=v;}
   (txs||[]).forEach(function(t){
     if(!t||!t.d) return;
-    if(opt.acct&&opt.acct!=='all'&&t.a!==opt.acct) return;
+    if(!accHas(opt.acct,t.a)) return;
     if(!o.firstD||t.d<o.firstD) o.firstD=t.d;
     if(t.c==='titoli'){var ti=idx[t.d.slice(0,7)];if(ti!=null) o.tit[ti]+=-t.m;}
     var ty=(opt.over&&opt.over[t.id])||(types&&types[t.c]?types[t.c]:(t.m<0?'spesa':'entrata'));
@@ -1818,7 +1824,7 @@ function firstMoveYM(txs,acct){
   var f=null;
   (txs||[]).forEach(function(t){
     if(!t||!t.d) return;
-    if(acct&&acct!=='all'&&t.a!==acct) return;
+    if(!accHas(acct,t.a)) return;
     if(f==null||t.d<f) f=t.d;
   });
   return f?f.slice(0,7):null;
@@ -2208,6 +2214,19 @@ function mlabel(ym){return validYM(ym)?MESI[+ym.slice(5,7)-1]+' '+ym.slice(0,4):
 function mshort(ym){return validYM(ym)?MESI[+ym.slice(5,7)-1].slice(0,3):'';}
 function opt(v,l,sel){return '<option value="'+esc(v)+'"'+(String(v)===String(sel)?' selected':'')+'>'+esc(l)+'</option>';}
 function acctById(id){return S.accounts.find(function(a){return a.id===id;});}
+// selezione di più conti: 'all' = tutti, altrimenti gli id separati da virgola («ing_comune,afpfo103clqs»)
+function accSel(v){return !v||v==='all'?null:String(v).split(',').filter(Boolean);}
+function accHas(v,id){var l=accSel(v);return !l||l.indexOf(id)>=0;}
+function accList(v){var l=accSel(v);return l?S.accounts.filter(function(a){return l.indexOf(a.id)>=0;}):S.accounts;}
+function accName(v){var l=accSel(v);return l?l.map(function(id){return (acctById(id)||{}).n||'';}).filter(Boolean).join(' + '):'tutti i conti';}
+function accFix(v){if(!v||v==='all') return 'all';var l=String(v).split(',').filter(function(id){return acctById(id);});return l.length?l.join(','):'all';}
+function accMulti(sel){
+  var l=accSel(sel),list=movAccounts();
+  var lbl=!l?'Tutti i conti':(l.length===1?accName(sel):nf(l.length)+' conti');
+  return '<details class="msel" data-tg="pmAccOpen"'+(U.pmAccOpen?' open':'')+'><summary aria-label="Conti" title="Scegli uno o più conti">'+esc(lbl)+'</summary><div class="mselp">'+
+    '<label class="chk"><input type="checkbox" data-chg="pm-acc-ck" value="all"'+(!l?' checked':'')+'> <b>Tutti i conti</b></label>'+
+    list.map(function(x){return '<label class="chk"><input type="checkbox" data-chg="pm-acc-ck" value="'+esc(x.id)+'"'+(!l||l.indexOf(x.id)>=0?' checked':'')+'> '+esc(x.n)+'</label>';}).join('')+'</div></details>';
+}
 function catById(id){return S.cats.find(function(c){return c.id===id;});}
 function movAccounts(){return S.accounts.filter(function(a){return a.mode==='mov';});}
 // l'ultima categoria di tipo giroconto o risparmio: senza, i soldi spostati verrebbero contati come spese ed entrate
@@ -2311,7 +2330,7 @@ function aggregate(txs){
 function txFor(f){
   var qq=f.q?normDesc(f.q):'',out=[],sus=f.cat==='__chk'?suspectNow():null;
   S.tx.forEach(function(t){
-    if(f.acct&&f.acct!=='all'&&t.a!==f.acct) return;
+    if(!accHas(f.acct,t.a)) return;
     if(f.cat==='__fam'){if(!FAM[t.id]) return;}
     else if(f.cat==='__esc'){if(effType(t)!=='escluso'||t.c==='titoli') return;}
     else if(f.cat==='__giro'){if(effType(t)!=='giroconto') return;}
@@ -2374,10 +2393,10 @@ function fixUI(){
   if(['pat','home','pm','mov','bol','rec','acc','inv','set'].indexOf(U.tab)<0) U.tab='pat';
   if(!validYM(U.month)) U.month=thisYM;
   if(U.acct!=='all'&&!acctById(U.acct)) U.acct='all';
-  if(p.acct!=='all'&&!acctById(p.acct)) p.acct='all';
+  p.acct=accFix(p.acct);
   if(p.range!=='12'&&!/^\d{4}$/.test(String(p.range))) p.range='12';
   if(!/^(tot|avg|name|m:\d{4}-\d{2})$/.test(String(p.sort))) p.sort='tot';
-  if(m.acct!=='all'&&!acctById(m.acct)) m.acct='all';
+  m.acct=accFix(m.acct);
   if(m.month&&!validYM(m.month)) m.month='';
   if(m.cat&&m.cat!=='_none'&&m.cat!=='__giro'&&m.cat!=='__fam'&&m.cat!=='__esc'&&m.cat!=='__chk'&&!catById(m.cat)) m.cat='';
   if(m.batch&&!S.imps.some(function(x){return x.id===m.batch;})) m.batch='';
@@ -2640,7 +2659,7 @@ function viewPm(){
   var nc=months.length;
   var h='<div class="card" style="margin-bottom:12px"><div class="toolbar" style="margin:0">'+
     '<select data-chg="pm-range" aria-label="Periodo">'+opt('12','Ultimi 12 mesi',P.range)+pmYears().map(function(y){return opt(y,'Anno '+y,P.range);}).join('')+'</select>'+
-    '<select data-chg="pm-acct" aria-label="Conto"><option value="all">Tutti i conti</option>'+movAccounts().map(function(x){return opt(x.id,x.n,P.acct);}).join('')+'</select>'+
+    accMulti(P.acct)+
     '<select data-chg="pm-sort" aria-label="Ordina le categorie per" title="Come ordinare le righe delle categorie">'+opt('tot','Ordina per totale',P.sort)+opt('avg','Ordina per media',P.sort)+months.slice().reverse().map(function(ym){return opt('m:'+ym,'Ordina per '+mshort(ym)+' '+ym.slice(2,4),P.sort);}).join('')+opt('name','Ordina per nome (A→Z)',P.sort)+'</select>'+
     '<label class="chk" style="margin:0" title="Una spesa ripartita su più mesi (es. 3 mesi di condominio pagati insieme) conta per la quota di ciascun mese. Togli la spunta per contare tutto nel mese del pagamento."><input type="checkbox" data-chg="pm-comp"'+(P.cash?'':' checked')+'> per competenza</label><span class="grow"></span><button type="button" class="btn" data-act="pm-xlsx" title="Scarica questa tabella e il fondo cassa in un file Excel">Esporta Excel</button><button type="button" class="btn" data-act="xp-xlsx" title="Scarica un Excel per esplorare tutte le categorie: riepilogo, categorie per mese, scheda per categoria e tutti i movimenti">Excel per esplorare</button></div></div>';
   if(!S.tx.length||!M.count){
@@ -2700,7 +2719,7 @@ function viewPm(){
     '<td class="tc '+(tot(dif)>=0?'good':'bad')+'">'+(tot(dif)>0?'+':'')+fmt0(tot(dif))+'</td><td class="ta '+(aEnt-aUsc>=0?'good':'bad')+'">'+(aEnt-aUsc>0?'+':'')+fmt0(aEnt-aUsc)+'</td></tr>';
   if(tot(M.rsp)) body+=sec('Risparmio / PAC')+catRows(M.risp,'risparmio');
   if(tot(M.gin)||tot(M.gout)) body+=sec('Giroconti · non inclusi nei totali')+'<tr><td>Arrivati da altri conti</td>'+cells(M.gin,{noheat:true})+'</tr><tr><td>Usciti verso altri conti</td>'+cells(M.gout,{noheat:true})+'</tr>';
-  var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl),bcard='';
+  var bs=balanceSeries(accList(P.acct),S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl),bcard='';
   if(bs){
     var sgn=function(v){return (v>0?'+':'')+fmt0(v);},
       nz=function(arr){return arr.map(function(v){return v==null?0:v;});},
@@ -2778,7 +2797,7 @@ var SORTOPTS=[['d:-1','Data ↓ più recenti'],['d:1','Data ↑ più vecchi'],['
 function viewMov(){
   var f=U.mv,anyAl=S.tx.some(function(t){return t.al;});
   return '<div class="card"><div class="toolbar">'+
-    '<select data-chg="mv-acct"><option value="all">Tutti i conti</option>'+movAccounts().map(function(x){return opt(x.id,x.n,f.acct);}).join('')+'</select>'+
+    '<select data-chg="mv-acct"><option value="all">Tutti i conti</option>'+(String(f.acct).indexOf(',')>=0?'<option value="'+esc(f.acct)+'" selected>'+esc(accName(f.acct))+'</option>':'')+movAccounts().map(function(x){return opt(x.id,x.n,f.acct);}).join('')+'</select>'+
     '<input type="month" value="'+esc(f.month)+'" data-chg="mv-month" title="Mese (vuoto = tutti)"'+MLIM+'>'+
     '<select data-chg="mv-cat"><option value="">Tutte le categorie</option>'+opt('_none','Da categorizzare',f.cat)+opt('__giro','Tutti i giroconti',f.cat)+opt('__fam','Versamenti da familiari (contano come entrate)',f.cat)+opt('__esc','Gestione straordinaria',f.cat)+opt('__chk','Da controllare (possibili giroconti)',f.cat)+withSel(catOptionsHtml(),f.cat)+'</select>'+
     '<input type="search" placeholder="Cerca…" value="'+esc(f.q)+'" data-inp="mv-q" style="flex:1;min-width:120px">'+
@@ -2818,7 +2837,7 @@ function renderTxList(){
   var box=$('#txList');if(!box) return;
   renderMvBar();
   if(!list.length){box.innerHTML='<div class="empty">Nessun movimento. Importa un estratto conto o cambia i filtri.</div>';return;}
-  var showAcc=f.acct==='all',opts='<option value="">— da categorizzare —</option>'+catOptionsHtml();
+  var showAcc=f.acct==='all'||String(f.acct).indexOf(',')>=0,opts='<option value="">— da categorizzare —</option>'+catOptionsHtml();
   function th(k,label,cls){
     var on=f.sort===k;
     return '<th class="'+cls+'"><button type="button" class="sortb'+(on?' on':'')+'" data-act="mv-sort" data-k="'+k+'" title="Ordina per '+label.toLowerCase()+'">'+label+'<span class="ar">'+(on?(f.dir>0?'▲':'▼'):'↕')+'</span></button></th>';
@@ -3021,7 +3040,7 @@ function splitModal(id){
 function txModal(id){
   var t=id?S.tx.find(function(x){return x.id===id;}):null,accs=movAccounts();
   if(!accs.length){toast('Nessun conto con movimenti');return;}
-  var v=t||{a:U.mv.acct!=='all'?U.mv.acct:accs[0].id,d:todayISO(),m:-1,s:'',c:null};
+  var v=t||{a:U.mv.acct!=='all'&&acctById(U.mv.acct)?U.mv.acct:accs[0].id,d:todayISO(),m:-1,s:'',c:null};
   openModal(t?'Modifica movimento':'Nuovo movimento',
     '<label>Conto<select name="a">'+accs.map(function(a){return opt(a.id,a.n,v.a);}).join('')+'</select></label>'+
     '<div class="row2"><label>Data<input type="date" name="d" value="'+esc(v.d)+'" required'+DLIM+'></label>'+
@@ -3213,7 +3232,7 @@ var imp=null;
 function importModal(acctId){
   var accs=movAccounts();
   if(!accs.length){toast('Nessun conto con movimenti: modificalo in Impostazioni');return;}
-  imp={acct:acctId||(U.mv.acct!=='all'?U.mv.acct:(U.acct!=='all'&&acctById(U.acct)&&acctById(U.acct).mode==='mov'?U.acct:accs[0].id)),rows:null,hdr:0,map:null,invert:false,fname:'',meta:null,note:'',cmap:{},o:{cat:true,over:true,al:true,learn:true,skipOld:true}};
+  imp={acct:acctId||(U.mv.acct!=='all'&&acctById(U.mv.acct)?U.mv.acct:(U.acct!=='all'&&acctById(U.acct)&&acctById(U.acct).mode==='mov'?U.acct:accs[0].id)),rows:null,hdr:0,map:null,invert:false,fname:'',meta:null,note:'',cmap:{},o:{cat:true,over:true,al:true,learn:true,skipOld:true}};
   openModal('Importa estratto conto',impBody(),function(){return doImport();},{ok:'Importa'});
 }
 function impBody(){
@@ -3257,6 +3276,18 @@ function impParse(){
     var list=byDC[i.d+'|'+i.cents]||[];
     for(var j=0;j<list.length;j++) if(!used[list[j].id]){used[list[j].id]=1;i._m=1;exist.push({it:i,tx:list[j]});return;}
   });
+  // un movimento inserito a mano, modificato o diviso ha un id «m…» diverso da quello dell'estratto: se data, importo e descrizione
+  // coincidono con una riga del file non ancora abbinata, è la stessa operazione (altrimenti l'import la aggiunge una seconda volta)
+  var byDCS={};
+  mine.forEach(function(t){
+    if(/^i/.test(t.id)||used[t.id]) return;
+    var k=t.d+'|'+t.m+'|'+normDesc(t.s);(byDCS[k]=byDCS[k]||[]).push(t);
+  });
+  r.items.forEach(function(i){
+    if(i._m) return;
+    var list=byDCS[i.d+'|'+i.cents+'|'+normDesc(i.s)]||[];
+    for(var j=0;j<list.length;j++) if(!used[list[j].id]){used[list[j].id]=1;i._m=1;return;}
+  });
   var lo=null,hi=null;
   if(upd&&imp.o.skipOld&&exist.length&&mine.length){
     mine.forEach(function(t){if(lo==null||t.d<lo) lo=t.d;if(hi==null||t.d>hi) hi=t.d;});
@@ -3264,7 +3295,8 @@ function impParse(){
   var old=0;
   r.items.forEach(function(i){
     if(i._m) return;
-    if(S.del[i.id]>0){if(!imp.o.reimp){blocked++;return;}if(splitCovered(imp.acct,i.d,i.cents)){blocked++;covered++;return;}}
+    if(S.del[i.id]>0){if(!imp.o.reimp){blocked++;return;}if(splitCovered(imp.acct,i.d,i.cents,i.s)){blocked++;covered++;return;}}
+    else if(splitCovered(imp.acct,i.d,i.cents,i.s)){covered++;return;}
     if(lo!=null&&i.d>=lo&&i.d<=hi){old++;return;}
     fresh.push(i);
   });
@@ -3316,9 +3348,9 @@ function impExtra(head,colOpts,res){
   return h;
 }
 // un pagamento diviso con «Dividi in due categorie» è già rappresentato dalle sue parti (nota «Parte di un pagamento da X»): l'originale eliminato non va riportato indietro
-function splitCovered(a,d,cents){
-  var tag='Parte di un pagamento da '+eur(Math.abs(cents));
-  return S.tx.some(function(t){return t.a===a&&t.d===d&&String(t.n||'').indexOf(tag)>=0;});
+function splitCovered(a,d,cents,desc){
+  var tag='Parte di un pagamento da '+eur(Math.abs(cents)),nd=desc==null?null:normDesc(desc);
+  return S.tx.some(function(t){return t.a===a&&t.d===d&&String(t.n||'').indexOf(tag)>=0&&(nd==null||normDesc(t.s)===nd);});
 }
 function impSummary(res){
   var h='<b>'+nf(res.fresh.length)+'</b> nuovi · '+nf(res.dup)+' già presenti';
@@ -4387,7 +4419,7 @@ async function exportPmXlsx(){
   var c1=2,cT=c1+nc,cA=cT+1,cB=cA+1,last=cB;          // colonne: categoria | mesi | totale | media | budget
   var b=new XlBook();b.title='Conti di casa · Per mese';
   var sh=b.sheet('Per mese',{first:1,tab:XLC.cur});
-  var acct=P.acct==='all'?'tutti i conti':(acctById(P.acct)||{}).n||'',
+  var acct=accName(P.acct),
     per=P.range==='12'?'ultimi 12 mesi':'anno '+P.range;
   xlTitleBar(b,sh,'Conti di casa · Per mese','Periodo: '+per+'  ·  Conto: '+acct+'  ·  Criterio: '+(P.cash?'per data di pagamento':'per competenza (le spese ripartite contano per quota)')+'  ·  Importi in euro  ·  Esportato il '+xlStamp(),last);
   sh.width(1,47);for(var i=0;i<nc;i++) sh.width(c1+i,10.5);sh.width(cT,12).width(cA,12).width(cB,12);
@@ -4508,7 +4540,7 @@ async function exportPmXlsx(){
   sh.width(2,10.5);
 
   // ===== fondo cassa =====
-  var bs=balanceSeries(P.acct==='all'?S.accounts:[acctById(P.acct)],S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl);
+  var bs=balanceSeries(accList(P.acct),S.tx,snapsOf,months,todayISO(),'titoli',effType,U.xl);
   var notes=[];
   if(bs){
     r=lastCat+3;
@@ -4574,7 +4606,7 @@ async function exportMvXlsx(){
   var catLabel=f.cat?(f.cat==='_none'?'Da categorizzare':f.cat==='__giro'?'Tutti i giroconti':f.cat==='__fam'?'Versamenti da familiari':f.cat==='__esc'?'Gestione straordinaria':f.cat==='__chk'?'Da controllare (possibili giroconti)':(catById(f.cat)||{}).n||''):'tutte';
   var sortLbl=(SORTOPTS.filter(function(o){return o[0]===f.sort+':'+f.dir;})[0]||['',''])[1];
   var imp=f.batch?S.imps.filter(function(x){return x.id===f.batch;})[0]:null;
-  var parts=['Conto: '+(f.acct==='all'?'tutti':(acctById(f.acct)||{}).n||''),'Mese: '+(f.month?mlabel(f.month)+(f.cash?' (per data)':' (per competenza)'):'tutti'),'Categoria: '+catLabel];
+  var parts=['Conto: '+(f.acct==='all'?'tutti':accName(f.acct)),'Mese: '+(f.month?mlabel(f.month)+(f.cash?' (per data)':' (per competenza)'):'tutti'),'Categoria: '+catLabel];
   if(f.q) parts.push('Ricerca: «'+f.q+'»');
   if(imp) parts.push('Importazione: '+batchLabel(imp));
   parts.push('Ordine: '+sortLbl);parts.push('Esportato il '+xlStamp());
@@ -4881,8 +4913,10 @@ function ecCheck(){
   data.forEach(function(d){
     var best=null,amb=d.rd.length>1&&!d.p1.eod;
     d.rd.forEach(function(r){if(!best||Math.abs(r.diff)<Math.abs(best.diff)) best=r;});
-    if(amb&&best.diff!==0&&(pref.start||pref.end)){
-      var want=pref.start>=pref.end?d.rd.filter(function(r){return r.lo&&r.hi;})[0]:d.rd.filter(function(r){return !r.lo&&r.hi;})[0];
+    if(amb&&best.diff!==0){
+      // saldo «iniziale» di un estratto = saldo prima dei movimenti del primo giorno del file: senza altri indizi leggo l'intervallo con il giorno incluso
+      // (scegliere lo scarto minore nasconderebbe i doppioni, per esempio un -250 mascherato da un -332,28 non contato)
+      var want=(pref.start||pref.end)?(pref.start>=pref.end?d.rd.filter(function(r){return r.lo&&r.hi;})[0]:d.rd.filter(function(r){return !r.lo&&r.hi;})[0]):d.rd.filter(function(r){return r.lo&&r.hi;})[0];
       if(want) best=want;
     }
     var p1=d.p1,p2=d.p2,iv={p1:p1,p2:p2,exp:d.exp,reg:best.reg,diff:best.diff,ok:best.diff===0,cands:[],implied:p2.m-best.reg};
@@ -4894,9 +4928,17 @@ function ecCheck(){
         }
       });
       iv.cands.sort(function(a,b){return (b.twin?1:0)-(a.twin?1:0)||(a.t.d<b.t.d?-1:1);});
-      out.bad.push({a:d.x.a,iv:iv});
     }
     d.x.ivs.push(iv);
+  });
+  // due periodi consecutivi con scarti opposti: un movimento datato nel primo ma contabilizzato dopo il saldo di confine (addebiti SDD con scadenza
+  // già passata, ecc.). Non è un doppione né una mancanza: il totale dei due periodi quadra, quindi lo segnalo senza contarlo come errore
+  out.accts.forEach(function(x){
+    for(var i=0;i<x.ivs.length;i++){
+      var a=x.ivs[i],b=x.ivs[i+1];
+      if(a&&b&&!a.ok&&!b.ok&&a.diff+b.diff===0&&a.p2.d===b.p1.d){a.late=b;b.late=a;i++;}
+    }
+    x.ivs.forEach(function(iv){if(!iv.ok&&!iv.late) out.bad.push({a:x.a,iv:iv});});
   });
   out.splits=ecSplits();
   return out;
@@ -4914,6 +4956,12 @@ function ecCard(){
       var span='dal '+fd(iv.p1.d)+' al '+fd(iv.p2.d);
       if(iv.ok){nOk++;h+='<div class="ecok sm"><span class="good">✓</span> '+span+': quadra (variazione '+eurS(iv.exp)+')</div>';return;}
       var more=iv.diff>0,amt=eur(Math.abs(iv.diff));
+      if(iv.late){
+        var lc=iv.cands[0]||(iv.late.cands||[])[0];
+        h+='<div class="ecok sm"><span class="warn">≈</span> '+span+': scarto di '+eurS(iv.diff)+', compensato dal periodo '+(iv.late.p1.d===iv.p2.d?'successivo':'precedente')+' ('+eurS(iv.late.diff)+'): '+
+          (lc?'probabilmente '+esc((shortDesc(lc.t.s)||'').slice(0,40))+' del '+fd(lc.t.d)+' è stato contabilizzato dopo il saldo del '+fd(iv.late.p1.d===iv.p2.d?iv.p2.d:iv.p1.d)+'. ':'un movimento è stato contabilizzato dopo il saldo di confine. ')+'Nel complesso i due periodi quadrano.</div>';
+        return;
+      }
       h+='<div class="ecbad"><div><span class="warn">⚠</span> <b>'+span+' non quadra di '+amt+'.</b> Secondo gli estratti il saldo varia di '+eurS(iv.exp)+', i movimenti registrati sommano '+eurS(iv.reg)+': ci sono '+amt+(more?' in più':' in meno')+'.</div>'+
         '<ul class="eclist">';
       if(iv.cands.length){
@@ -4958,7 +5006,7 @@ var H={
   'mk-strao':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;}),c=straoId();if(!t) return;if(!c){toast('Manca una categoria «Gestione straordinaria e titoli»: creala in Impostazioni');return;}t.c=c;stamp(t);save();render();toast('Segnato come operazione straordinaria · '+catById(c).n);},
   'mk-entr':function(el){var t=S.tx.find(function(x){return x.id===el.dataset.id;}),c=entrId();if(!t) return;if(!c){toast('Manca una categoria di entrata: creala in Impostazioni');return;}t.c=c;stamp(t);save();render();toast('Segnato come entrata · '+catById(c).n);},
   'pm-cell':function(el){U.mv=mvDefaults();U.mv.month=el.dataset.ym;U.mv.cat=el.dataset.cat;U.mv.acct=U.pm.acct;U.mv.cash=U.pm.cash;U.sel={};U.tab='mov';render();window.scrollTo(0,0);},
-  'pm-month':function(el){U.month=el.dataset.ym;U.acct=U.pm.acct;U.tab='home';render();window.scrollTo(0,0);},
+  'pm-month':function(el){U.month=el.dataset.ym;U.acct=String(U.pm.acct).indexOf(',')>=0?'all':U.pm.acct;U.tab='home';render();window.scrollTo(0,0);},
   'pat-add':function(){patModal();},
   'pat-edit':function(el){patModal(el.dataset.id);},
   'pat-del':function(el){var it=S.pat.find(function(x){return x.id===el.dataset.id;});if(it&&confirm('Eliminare «'+it.n+'»?')){removeItem('pat',it.id);render();}},
@@ -5089,6 +5137,13 @@ var CH={
   'rx-row':function(){rxSync();},
   'home-month':function(el){if(validYM(el.value)){U.month=el.value;render();}},
   'home-acct':function(el){U.acct=el.value;render();},
+  'pm-acc-ck':function(el){
+    var all=movAccounts().map(function(a){return a.id;}),cur=accSel(U.pm.acct)||all.slice();
+    if(el.value==='all') cur=el.checked?null:[all[0]];
+    else cur=el.checked?cur.concat(cur.indexOf(el.value)<0?[el.value]:[]):cur.filter(function(id){return id!==el.value;});
+    if(!cur||!cur.length||all.every(function(id){return cur.indexOf(id)>=0;})) U.pm.acct='all'; else U.pm.acct=all.filter(function(id){return cur.indexOf(id)>=0;}).join(',');
+    U.pmAccOpen=true;render();
+  },
   'mv-acct':function(el){U.mv.acct=el.value;mvReset();},
   'mv-month':function(el){var v=el.value;if(v===''||validYM(v)){U.mv.month=v;mvReset();}},
   'mv-cat':function(el){U.mv.cat=el.value;mvReset();},
