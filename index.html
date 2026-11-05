@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#112b4d">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'unsafe-inline'; img-src data: blob:; connect-src https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firestore.googleapis.com; base-uri 'none'; form-action 'none'">
 <title>Conti di casa</title>
 <style>
 :root{color-scheme:light;--bg:#f0f3f8;--head:#112b4d;--card:#fff;--ink:#14243a;--muted:#52687f;--line:#dce4ef;--ctl:#a7b6ca;--accent:#1d5fd1;--accent-ink:#fff;--hl:#8dbaff;--good:#0b6b46;--bad:#b4303f;--warn:#855000;--soft:#e9eff8;--r:12px;--shadow:0 1px 2px rgba(17,43,77,.06)}
@@ -2210,6 +2210,7 @@ function save(){
   }
   if(!lsErr){
     lastRaw=out;storageOK=true;unsaved=0;
+    if(typeof fbTouch==='function') fbTouch();
     var was=!!saveErr||!!ovf;saveErr=null;ovf=null;
     if(idbState.on) idbMirror(null);
     if(was) renderBanner();
@@ -4216,7 +4217,7 @@ function patModal(id){
 
 // ===== Impostazioni =====
 function viewSet(){
-  var h='<div class="card"><div class="toolbar"><h2 style="margin:0">Conti</h2><span class="grow"></span><button class="btn" data-act="set-acc-add">+ Conto</button></div><div class="scroll"><table><tbody>'+
+  var h=fbCardHtml()+'<div class="card"><div class="toolbar"><h2 style="margin:0">Conti</h2><span class="grow"></span><button class="btn" data-act="set-acc-add">+ Conto</button></div><div class="scroll"><table><tbody>'+
     S.accounts.map(function(a){return '<tr><td>'+esc(a.n)+'<div class="muted" style="font-size:12px">'+esc(a.bank||'')+(a.iban||a.num?' · …'+esc((a.iban||a.num).slice(-4)):'')+'</div></td><td><span class="pill">'+(a.mode==='mov'?'con movimenti':'solo saldo')+'</span></td><td class="muted">'+(a.rate>0?fmtPct(a.rate)+'%'+(a.cred?' · '+esc(CRED[a.cred]||''):''):'')+'</td><td class="right" style="white-space:nowrap"><button class="btn sm" data-act="set-acc-edit" data-id="'+esc(a.id)+'">✎</button> <button class="btn sm danger" data-act="set-acc-del" data-id="'+esc(a.id)+'">🗑</button></td></tr>';}).join('')+'</tbody></table></div></div>';
   h+='<div class="card"><div class="toolbar"><h2 style="margin:0">Categorie e budget mensile</h2><span class="grow"></span><button class="btn" data-act="set-cat-add">+ Categoria</button></div><div class="scroll"><table><tbody>'+
     TYPES.map(function(t){
@@ -5145,6 +5146,12 @@ function ecCard(){
 // ===== Eventi =====
 var H={
   tab:function(el){U.tab=el.dataset.tab;render();window.scrollTo(0,0);},
+  'fb-setup':function(){fbSetup();},
+  'fb-sync':function(){FB.dirty=true;fbSync(true).then(function(){if(!FB.err) toast('Sincronizzato');});},
+  'fb-off':function(){
+    if(!confirm('Scollegare la sincronizzazione su questo dispositivo?\n\nI dati restano qui e nel cloud; semplicemente non si sincronizzano più finché non la riattivi.')) return;
+    FB.cfg=null;FB.tok=null;FB.err='';try{localStorage.removeItem(FBKEY);}catch(e){}fbChip();render();toast('Sincronizzazione scollegata');
+  },
   'ec-del':function(el){
     var t=S.tx.find(function(x){return x.id===el.dataset.id;});if(!t) return;
     if(!confirm('Eliminare questo movimento?\n'+fd(t.d)+' · '+shortDesc(t.s)+' · '+eurS(t.m)+(t.n?'\nNota: '+t.n:'')+'\n\nNon tornerà con un nuovo import.')) return;
@@ -5500,6 +5507,212 @@ document.addEventListener('visibilitychange',function(){
   render();renderBanner();
 });
 // un'altra scheda dell'app ha salvato: si uniscono i suoi dati ai miei (senza mai perderne), poi si ripubblica solo se qui c'era qualcosa in più
+
+// ===== Sincronizzazione cloud (Firebase) =====
+// Nessuna libreria: si parla direttamente con le API REST di Google (accesso con email e password + database Firestore), quindi funziona sia da file locale sia da GitHub Pages.
+// Nel cloud c'è un solo documento con tutto lo stato (compresso e, se imposti una passphrase, cifrato qui sul dispositivo prima dell'invio).
+// Le modifiche si uniscono con lo stesso motore dei backup (absorbRaw/mergeInto): per ogni voce vince l'ultima modifica, le eliminazioni restano eliminazioni, nulla si perde.
+var FBKEY=KEY+'_fb';
+var FB={cfg:null,tok:null,exp:0,busy:false,dirty:true,err:'',mute:false,key:null,keyFor:'',timer:null};
+(function(){var r=lsGet(FBKEY);try{FB.cfg=r?JSON.parse(r):null;}catch(e){FB.cfg=null;}})();
+function fbOn(){return !!(FB.cfg&&FB.cfg.apiKey&&FB.cfg.pid&&FB.cfg.refresh);}
+function fbSaveCfg(){if(FB.cfg) lsSet(FBKEY,JSON.stringify(FB.cfg));}
+function fbTouch(){if(FB.mute||!fbOn()) return;FB.dirty=true;fbSchedule(4000);}
+function fbSchedule(ms){clearTimeout(FB.timer);FB.timer=setTimeout(function(){fbSync();},ms);}
+function fbMsg(e){
+  var m=String((e&&e.message)||e||'');
+  if(e&&e.relogin) return m;
+  if(/Failed to fetch|NetworkError|Load failed/i.test(m)) return 'Nessuna connessione, oppure il browser blocca l’accesso al cloud';
+  return m.slice(0,160);
+}
+function fbErr(j,def){
+  var m=String(j&&j.error&&(j.error.message||j.error.status)||'');var e;
+  if(/EMAIL_NOT_FOUND|INVALID_PASSWORD|INVALID_LOGIN_CREDENTIALS/.test(m)) e=new Error('Email o password non corretta');
+  else if(/TOO_MANY_ATTEMPTS/.test(m)) e=new Error('Troppi tentativi: riprova tra qualche minuto');
+  else if(/API key not valid|API_KEY_INVALID|API_KEY_HTTP_REFERRER|referer/i.test(m)) e=new Error('API key non valida o limitata a certi indirizzi (lascia la chiave senza restrizioni: la protezione sono le regole del database)');
+  else if(/OPERATION_NOT_ALLOWED|PASSWORD_LOGIN_DISABLED/.test(m)) e=new Error('Accesso con email e password non attivo (Firebase → Authentication → Metodo di accesso)');
+  else if(/TOKEN_EXPIRED|INVALID_REFRESH_TOKEN|USER_DISABLED|USER_NOT_FOUND/.test(m)){e=new Error('Sessione scaduta: ricollega la sincronizzazione');e.relogin=true;}
+  else if(/PERMISSION_DENIED|insufficient permissions/i.test(m)) e=new Error('Accesso negato dalle regole di Firestore: controlla le regole e che l’email sia quella autorizzata');
+  else if(/has not been used|SERVICE_DISABLED|database .* does not exist|NOT_FOUND/i.test(m)&&/firestore|database/i.test(m)) e=new Error('Firestore non è attivo: crea il database in Firebase (Firestore Database → Crea database)');
+  else e=new Error(m?m.slice(0,140):(def||'Errore del cloud'));
+  return e;
+}
+async function fbSignIn(apiKey,email,pw){
+  var r=await fetch('https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key='+encodeURIComponent(apiKey),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:email,password:pw,returnSecureToken:true})});
+  var j=await r.json().catch(function(){return {};});
+  if(!r.ok) throw fbErr(j,'Accesso non riuscito');
+  return j;
+}
+async function fbToken(force){
+  var c=FB.cfg;
+  if(!force&&FB.tok&&Date.now()<FB.exp-60000) return FB.tok;
+  var r=await fetch('https://securetoken.googleapis.com/v1/token?key='+encodeURIComponent(c.apiKey),{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:'grant_type=refresh_token&refresh_token='+encodeURIComponent(c.refresh)});
+  var j=await r.json().catch(function(){return {};});
+  if(!r.ok) throw fbErr(j,'Sessione scaduta');
+  FB.tok=j.id_token;FB.exp=Date.now()+(+j.expires_in||3600)*1000;
+  if(j.refresh_token&&j.refresh_token!==c.refresh){c.refresh=j.refresh_token;fbSaveCfg();}
+  return FB.tok;
+}
+function fbUrl(){return 'https://firestore.googleapis.com/v1/projects/'+encodeURIComponent(FB.cfg.pid)+'/databases/(default)/documents/casa/dati';}
+async function fbReq(method,url,body){
+  for(var k=0;k<2;k++){
+    var tok=await fbToken(k===1);
+    var r=await fetch(url,{method:method,headers:{'Authorization':'Bearer '+tok,'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+    if(r.status===401&&k===0) continue;
+    var j=await r.json().catch(function(){return {};});
+    return {status:r.status,ok:r.ok,j:j};
+  }
+}
+// ---- codifica: JSON → (gzip) → (AES-GCM con passphrase) → base64 ----
+function fbB64(u){var s='',i=0,CH=0x8000;for(;i<u.length;i+=CH) s+=String.fromCharCode.apply(null,u.subarray(i,i+CH));return btoa(s);}
+function fbUnB64(t){var s=atob(t),u=new Uint8Array(s.length);for(var i=0;i<s.length;i++) u[i]=s.charCodeAt(i);return u;}
+async function fbGz(bytes,comp){
+  var st=new Response(bytes).body.pipeThrough(comp?new CompressionStream('gzip'):new DecompressionStream('gzip'));
+  return new Uint8Array(await new Response(st).arrayBuffer());
+}
+async function fbAesKey(pass){
+  if(FB.key&&FB.keyFor===pass) return FB.key;
+  var enc=new TextEncoder(),base=await crypto.subtle.importKey('raw',enc.encode(pass),'PBKDF2',false,['deriveKey']);
+  FB.key=await crypto.subtle.deriveKey({name:'PBKDF2',salt:enc.encode('conti-casa|'+FB.cfg.pid),iterations:250000,hash:'SHA-256'},base,{name:'AES-GCM',length:256},false,['encrypt','decrypt']);
+  FB.keyFor=pass;return FB.key;
+}
+async function fbEncode(text){
+  var bytes=new TextEncoder().encode(text),tag='';
+  if(typeof CompressionStream!=='undefined'){bytes=await fbGz(bytes,true);tag='g';}else tag='p';
+  if(FB.cfg.pass){
+    var key=await fbAesKey(FB.cfg.pass),iv=crypto.getRandomValues(new Uint8Array(12)),ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv:iv},key,bytes)),all=new Uint8Array(12+ct.length);
+    all.set(iv,0);all.set(ct,12);bytes=all;tag='e'+tag;
+  }
+  return tag+'1:'+fbB64(bytes);
+}
+async function fbDecode(str){
+  var i=str.indexOf(':'),tag=str.slice(0,i),bytes=fbUnB64(str.slice(i+1));
+  if(tag.charAt(0)==='e'){
+    if(!FB.cfg.pass) throw new Error('I dati nel cloud sono cifrati: inserisci la stessa passphrase usata sull’altro dispositivo');
+    var plain=null,tryP=[FB.cfg.pass].concat(FB.cfg.prevPass?[FB.cfg.prevPass]:[]);
+    for(var k=0;k<tryP.length&&!plain;k++){
+      try{plain=new Uint8Array(await crypto.subtle.decrypt({name:'AES-GCM',iv:bytes.subarray(0,12)},await fbAesKey(tryP[k]),bytes.subarray(12)));if(k===1) FB.usedPrev=true;}catch(e){}
+    }
+    if(!plain) throw new Error('Passphrase non corretta');
+    bytes=plain;
+    tag=tag.slice(1);
+  }
+  if(tag.charAt(0)==='g') bytes=await fbGz(bytes,false);
+  return new TextDecoder().decode(bytes);
+}
+// ---- sincronizzazione: scarico → unisco → (se qui c'era di più) pubblico; se qualcuno ha scritto nel frattempo si riprova ----
+async function fbSync(manual){
+  if(FB.busy||!fbOn()) return;
+  if(typeof navigator!=='undefined'&&navigator.onLine===false){fbChip();return;}
+  var dlg=$('#dlg');if(!manual&&dlg&&dlg.open){fbSchedule(8000);return;}
+  FB.busy=true;fbChip('sync');
+  var force=FB.dirty;FB.dirty=false;
+  try{
+    for(var tries=0;tries<4;tries++){
+      var g=await fbReq('GET',fbUrl()),rem=null,changed=false,push=false,h=null;
+      if(g.status===404) rem=null;
+      else if(!g.ok) throw fbErr(g.j,'Errore del cloud ('+g.status+')');
+      else rem=g.j;
+      if(rem){
+        var f=rem.fields||{};h=f.h&&f.h.stringValue;
+        if(h&&h===FB.cfg.lastH&&!force&&tries===0){FB.cfg.last=Date.now();fbSaveCfg();FB.err='';break;}   // niente di nuovo, né di qua né di là
+        var res=absorbRaw(await fbDecode(f.d&&f.d.stringValue||''));
+        if(!res) throw new Error('I dati nel cloud non sono validi');
+        changed=!!(res.added||res.updated||res.removed);push=res.localAhead>0;
+        var rs=f.d&&f.d.stringValue||'';
+        if(FB.cfg.pass&&rs.charAt(0)!=='e') push=true;   // passphrase appena attivata: il cloud va ricifrato
+        if(FB.usedPrev) push=true;                       // passphrase cambiata: il cloud va ricifrato con la nuova
+        FB.usedPrev=false;
+        if(changed){FB.mute=true;try{save();}finally{FB.mute=false;}}
+      }else push=true;
+      if(push){
+        var nh=uid()+uid(),body={fields:{d:{stringValue:await fbEncode(JSON.stringify(S))},h:{stringValue:nh},t:{integerValue:String(Date.now())}}};
+        if(body.fields.d.stringValue.length>1000000) throw new Error('I dati sono troppo grandi per un solo documento Firestore');
+        var q='?updateMask.fieldPaths=d&updateMask.fieldPaths=h&updateMask.fieldPaths=t&'+(rem?'currentDocument.updateTime='+encodeURIComponent(rem.updateTime):'currentDocument.exists=false');
+        var pr=await fbReq('PATCH',fbUrl()+q,body);
+        if(pr.status===409||(pr.status===400&&/FAILED_PRECONDITION|precondition/i.test(JSON.stringify(pr.j)))||(pr.j&&pr.j.error&&pr.j.error.status==='ABORTED')){force=true;continue;}
+        if(!pr.ok) throw fbErr(pr.j,'Errore del cloud ('+pr.status+')');
+        FB.cfg.lastH=nh;delete FB.cfg.prevPass;
+      }else if(h) FB.cfg.lastH=h;
+      FB.cfg.last=Date.now();fbSaveCfg();FB.err='';
+      if(changed){render();renderBanner();toast('Dati aggiornati dal cloud');}
+      break;
+    }
+  }catch(e){
+    FB.err=fbMsg(e);FB.dirty=true;
+    if(e&&e.relogin&&FB.cfg){FB.cfg.refresh='';fbSaveCfg();}
+    if(!(e&&e.relogin)) fbSchedule(60000);
+  }finally{
+    FB.busy=false;fbChip();
+    if(FB.dirty&&!FB.err) fbSchedule(1500);
+    if(U.tab==='set'){var d2=$('#dlg');if(!(d2&&d2.open)) render();}
+  }
+}
+function fbWhen(t){
+  if(!t) return '';
+  var d=new Date(t),hm=pad2(d.getHours())+':'+pad2(d.getMinutes());
+  return todayISO()===d.getFullYear()+'-'+pad2(d.getMonth()+1)+'-'+pad2(d.getDate())?'alle '+hm:'il '+pad2(d.getDate())+'/'+pad2(d.getMonth()+1)+' alle '+hm;
+}
+function fbChip(state){
+  var el=document.querySelector('.hn');if(!el) return;
+  var tx=!fbOn()?'solo su questo dispositivo':state==='sync'?'sincronizzo col cloud…':FB.err?'<b class="bad" title="'+esc(FB.err)+'">sincronizzazione ferma</b>':'in locale e sul cloud';
+  el.innerHTML='<span class="hn1">dati salvati </span>'+tx+' · v12';
+}
+function fbCardHtml(){
+  var on=fbOn(),c=FB.cfg||{};
+  var st=on?(FB.err?'<span class="bad">⚠ '+esc(FB.err)+'</span>':'<span class="good">✓ attiva</span>')+' · '+esc(c.email||'')+(c.last?' · ultima sincronizzazione '+fbWhen(c.last):'')+(c.pass?' · dati cifrati':''):'non attiva';
+  return '<div class="card"><div class="toolbar"><h2 style="margin:0">Sincronizzazione cloud (Firebase)</h2><span class="grow"></span>'+
+    (on?'<button class="btn" data-act="fb-sync">Sincronizza ora</button><button class="btn" data-act="fb-off">Scollega</button>':'')+
+    '<button class="btn primary" data-act="fb-setup">'+(on?'Modifica':'Attiva')+'</button></div>'+
+    '<p class="muted" style="margin:8px 0 0">Stato: '+st+'</p>'+
+    '<p class="note" style="margin:6px 0 0">Con la sincronizzazione i dati restano in locale e vengono copiati e uniti anche nel tuo progetto Firebase, così il computer e il telefono vedono gli stessi dati. Funziona anche senza connessione: appena torna la rete si allinea da solo.</p></div>';
+}
+function fbSetup(){
+  var c=FB.cfg||{};
+  openModal('Sincronizzazione cloud',
+    '<p class="note" style="margin:0 0 8px">Prima, in <b>console.firebase.google.com</b>: crea un progetto, attiva <b>Authentication → Email/password</b> e crea i due utenti (tuo e di Costanza), poi <b>Firestore Database → Crea database</b> e incolla queste regole (con le vostre email):</p>'+
+    '<textarea readonly rows="6" style="width:100%;font:12px/1.4 monospace" onclick="this.select()">rules_version = \'2\';\nservice cloud.firestore {\n  match /databases/{db}/documents {\n    match /casa/{doc} {\n      allow read, write: if request.auth != null\n        && request.auth.token.email in [\'TUA@EMAIL\', \'COSTANZA@EMAIL\'];\n    }\n  }\n}</textarea>'+
+    '<p class="note" style="margin:8px 0">Poi, in Impostazioni progetto → Le tue app → Web, copia la configurazione e incollala qui (bastano apiKey e projectId):</p>'+
+    '<label>Configurazione Firebase<textarea name="cfg" rows="4" placeholder="const firebaseConfig = {&#10;  apiKey: &quot;AIza…&quot;,&#10;  projectId: &quot;il-tuo-progetto&quot;, …" style="width:100%">'+(c.apiKey?esc('apiKey: "'+c.apiKey+'", projectId: "'+c.pid+'"'):'')+'</textarea></label>'+
+    '<div class="row2"><label>Email<input type="email" name="email" value="'+esc(c.email||'')+'" autocomplete="username" required></label>'+
+    '<label>Password'+(fbOn()?' (vuota = resta collegato)':'')+'<input type="password" name="pw" autocomplete="current-password"></label></div>'+
+    '<label>Passphrase di cifratura (facoltativa)<input type="password" name="pass" value="'+esc(c.pass||'')+'" autocomplete="off" placeholder="uguale su tutti i dispositivi"></label>'+
+    '<p class="note" style="margin:6px 0 0">Con la passphrase i dati sono cifrati prima di lasciare il dispositivo: nemmeno dalla console Firebase si leggono. Se la dimentichi la copia nel cloud non si recupera (quella locale resta). Va scritta uguale su ogni dispositivo.</p>',
+    function(f){fbConnect(f);return false;},{ok:'Collega'});
+}
+async function fbConnect(f){
+  var c=FB.cfg||{},raw=String(f.get('cfg')||'');
+  var apiKey=(raw.match(/apiKey["']?\s*[:=]\s*["']([^"']+)["']/)||[])[1]||(raw.trim().match(/^AIza[\w-]{20,}$/)||[])[0]||c.apiKey||'';
+  var pid=(raw.match(/projectId["']?\s*[:=]\s*["']([^"']+)["']/)||[])[1]||c.pid||'';
+  var email=String(f.get('email')||'').trim(),pw=String(f.get('pw')||''),pass=String(f.get('pass')||'');
+  if(!apiKey||!pid||!email){toast('Servono la configurazione Firebase (apiKey e projectId) e l’email');return;}
+  var btn=document.querySelector('#mform button[type=submit]');if(btn){btn.disabled=true;btn.textContent='Collego…';}
+  try{
+    var cfg={apiKey:apiKey,pid:pid,email:email,pass:pass,refresh:c.refresh||'',lastH:(c.pid===pid&&c.email===email&&c.pass===pass)?c.lastH:''};
+    if(c.pass&&c.pass!==pass) cfg.prevPass=c.pass;
+    if(pw||!cfg.refresh||c.email!==email||c.apiKey!==apiKey){
+      if(!pw) throw new Error('Inserisci la password');
+      var j=await fbSignIn(apiKey,email,pw);cfg.refresh=j.refreshToken;FB.tok=j.idToken;FB.exp=Date.now()+(+j.expiresIn||3600)*1000;
+    }
+    FB.cfg=cfg;FB.key=null;fbSaveCfg();FB.dirty=true;FB.err='';
+    closeModal();toast('Collegato: sincronizzo…');
+    await fbSync(true);
+    if(FB.err) toast('Collegato, ma: '+FB.err); else toast('Sincronizzazione attiva');
+    render();
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Collega';}
+    toast(fbMsg(e));
+  }
+}
+function fbInit(){
+  fbChip();
+  if(!fbOn()) return;
+  fbSchedule(1500);
+  document.addEventListener('visibilitychange',function(){if(!document.hidden&&fbOn()) fbSchedule(800);});
+  window.addEventListener('online',function(){if(fbOn()){FB.err='';fbSchedule(800);}});
+  setInterval(function(){if(!document.hidden&&fbOn()&&!FB.busy) fbSync();},120000);
+}
+
 window.addEventListener('storage',function(e){
   if(e.key!==KEY||e.newValue==null||e.newValue===lastRaw) return;
   lastRaw=e.newValue;
@@ -5512,6 +5725,7 @@ idbBoot();
 patAuto();
 render();
 renderBanner();
+fbInit();
 (function(){var k='conti_casa_bankrule_v1';if(lsGet(k)||!S.tx.length) return;try{var n=applyBankRule();lsSet(k,'1');if(n){render();toast('Regola banca ordinante applicata a '+nf(n)+(n===1?' movimento':' movimenti'));}}catch(e){logErr(e);}})();
 </script>
 </body>
